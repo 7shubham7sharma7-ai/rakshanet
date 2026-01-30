@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Phone, Trash2, Star, User, X } from 'lucide-react';
+import { Plus, Phone, Trash2, Star, User, X, Loader2, ContactIcon } from 'lucide-react';
 import { useEmergency, EmergencyContact } from '@/contexts/EmergencyContext';
 import { useLanguage } from '@/lib/i18n';
 import { BottomNav } from '@/components/BottomNav';
@@ -8,11 +8,31 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useToast } from '@/hooks/use-toast';
+import { z } from 'zod';
+
+// Validation schemas
+const nameSchema = z.string().trim().min(1, "Name is required").max(100, "Name too long");
+const phoneSchema = z.string().regex(/^(\+91)?[6-9]\d{9}$/, "Enter valid Indian mobile number");
+const relationshipSchema = z.string().max(50, "Relationship too long").optional();
+
+const RELATIONSHIPS = [
+  'Parent',
+  'Spouse',
+  'Sibling',
+  'Friend',
+  'Relative',
+  'Neighbor',
+  'Colleague',
+  'Other'
+];
 
 const ContactCard: React.FC<{ 
   contact: EmergencyContact; 
   onDelete: () => void;
-}> = ({ contact, onDelete }) => {
+  isDeleting: boolean;
+}> = ({ contact, onDelete, isDeleting }) => {
   return (
     <motion.div
       layout
@@ -23,7 +43,7 @@ const ContactCard: React.FC<{
     >
       <Avatar className="h-12 w-12">
         <AvatarFallback className={`${contact.isPrimary ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
-          {contact.name.split(' ').map(n => n[0]).join('')}
+          {contact.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
         </AvatarFallback>
       </Avatar>
       
@@ -44,8 +64,18 @@ const ContactCard: React.FC<{
             <Phone className="w-4 h-4" />
           </a>
         </Button>
-        <Button size="icon" variant="ghost" onClick={onDelete} className="text-destructive">
-          <Trash2 className="w-4 h-4" />
+        <Button 
+          size="icon" 
+          variant="ghost" 
+          onClick={onDelete} 
+          className="text-destructive"
+          disabled={isDeleting}
+        >
+          {isDeleting ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Trash2 className="w-4 h-4" />
+          )}
         </Button>
       </div>
     </motion.div>
@@ -55,21 +85,97 @@ const ContactCard: React.FC<{
 const ContactsPage: React.FC = () => {
   const { t } = useLanguage();
   const { contacts, addContact, removeContact } = useEmergency();
+  const { toast } = useToast();
   const [showAddForm, setShowAddForm] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
     relationship: '',
     isPrimary: false,
   });
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formData.name || !formData.phone) return;
+  const validateForm = () => {
+    const newErrors: Record<string, string> = {};
     
-    addContact(formData);
-    setFormData({ name: '', phone: '', relationship: '', isPrimary: false });
-    setShowAddForm(false);
+    try {
+      nameSchema.parse(formData.name);
+    } catch (e: any) {
+      newErrors.name = e.errors?.[0]?.message || 'Invalid name';
+    }
+    
+    // Format phone number for validation
+    const phoneForValidation = formData.phone.startsWith('+91') 
+      ? formData.phone 
+      : `+91${formData.phone.replace(/\D/g, '')}`;
+    
+    try {
+      phoneSchema.parse(phoneForValidation);
+    } catch (e: any) {
+      newErrors.phone = e.errors?.[0]?.message || 'Invalid phone number';
+    }
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validateForm()) return;
+    
+    setLoading(true);
+    
+    try {
+      // Format phone number
+      const formattedPhone = formData.phone.startsWith('+91') 
+        ? formData.phone 
+        : `+91${formData.phone.replace(/\D/g, '')}`;
+      
+      await addContact({
+        name: formData.name.trim(),
+        phone: formattedPhone,
+        relationship: formData.relationship || 'Other',
+        isPrimary: formData.isPrimary,
+      });
+      
+      toast({ title: 'Contact added', description: `${formData.name.trim()} has been added to your emergency contacts.` });
+      setFormData({ name: '', phone: '', relationship: '', isPrimary: false });
+      setShowAddForm(false);
+    } catch (error: any) {
+      toast({ 
+        title: 'Error', 
+        description: error.message || 'Failed to add contact',
+        variant: 'destructive'
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    setDeletingId(id);
+    try {
+      await removeContact(id);
+      toast({ title: 'Contact removed' });
+    } catch (error: any) {
+      toast({ 
+        title: 'Error', 
+        description: error.message || 'Failed to remove contact',
+        variant: 'destructive'
+      });
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handlePhoneChange = (value: string) => {
+    // Only allow digits and + sign
+    const cleaned = value.replace(/[^\d+]/g, '');
+    // Limit to 13 characters (+91 + 10 digits)
+    const limited = cleaned.slice(0, 13);
+    setFormData(prev => ({ ...prev, phone: limited }));
   };
 
   return (
@@ -97,8 +203,8 @@ const ContactsPage: React.FC = () => {
               animate={{ opacity: 1 }}
               className="text-center py-12"
             >
-              <User className="w-16 h-16 mx-auto text-muted-foreground/30 mb-4" />
-              <h3 className="font-semibold text-foreground mb-2">No contacts yet</h3>
+              <ContactIcon className="w-16 h-16 mx-auto text-muted-foreground/30 mb-4" />
+              <h3 className="font-semibold text-foreground mb-2">No emergency contacts</h3>
               <p className="text-sm text-muted-foreground mb-4">
                 Add trusted contacts who will be notified during emergencies
               </p>
@@ -112,7 +218,8 @@ const ContactsPage: React.FC = () => {
               <ContactCard
                 key={contact.id}
                 contact={contact}
-                onDelete={() => removeContact(contact.id)}
+                onDelete={() => handleDelete(contact.id)}
+                isDeleting={deletingId === contact.id}
               />
             ))
           )}
@@ -134,7 +241,7 @@ const ContactsPage: React.FC = () => {
               initial={{ opacity: 0, y: '100%' }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: '100%' }}
-              className="fixed inset-x-0 bottom-0 z-50 bg-card border-t border-border rounded-t-3xl p-6"
+              className="fixed inset-x-0 bottom-0 z-50 bg-card border-t border-border rounded-t-3xl p-6 max-h-[90vh] overflow-y-auto"
             >
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-lg font-bold">{t('addContact')}</h2>
@@ -145,36 +252,53 @@ const ContactsPage: React.FC = () => {
               
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="name">Name</Label>
+                  <Label htmlFor="name">Name *</Label>
                   <Input
                     id="name"
-                    placeholder="Enter name"
+                    placeholder="Enter contact name"
                     value={formData.name}
                     onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                    maxLength={100}
                     required
+                    className={errors.name ? 'border-destructive' : ''}
                   />
+                  {errors.name && <p className="text-xs text-destructive">{errors.name}</p>}
                 </div>
                 
                 <div className="space-y-2">
-                  <Label htmlFor="phone">Phone Number</Label>
-                  <Input
-                    id="phone"
-                    type="tel"
-                    placeholder="+91 98765 43210"
-                    value={formData.phone}
-                    onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
-                    required
-                  />
+                  <Label htmlFor="phone">Phone Number *</Label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
+                      +91
+                    </span>
+                    <Input
+                      id="phone"
+                      type="tel"
+                      placeholder="Enter 10-digit number"
+                      value={formData.phone.replace('+91', '')}
+                      onChange={(e) => handlePhoneChange(e.target.value)}
+                      className={`pl-12 ${errors.phone ? 'border-destructive' : ''}`}
+                      required
+                    />
+                  </div>
+                  {errors.phone && <p className="text-xs text-destructive">{errors.phone}</p>}
                 </div>
                 
                 <div className="space-y-2">
                   <Label htmlFor="relationship">Relationship</Label>
-                  <Input
-                    id="relationship"
-                    placeholder="e.g., Parent, Spouse, Friend"
-                    value={formData.relationship}
-                    onChange={(e) => setFormData(prev => ({ ...prev, relationship: e.target.value }))}
-                  />
+                  <Select 
+                    value={formData.relationship} 
+                    onValueChange={(value) => setFormData(prev => ({ ...prev, relationship: value }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select relationship" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {RELATIONSHIPS.map((rel) => (
+                        <SelectItem key={rel} value={rel}>{rel}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 
                 <div className="flex items-center gap-2">
@@ -190,8 +314,12 @@ const ContactsPage: React.FC = () => {
                   </Label>
                 </div>
                 
-                <Button type="submit" className="w-full" size="lg">
-                  Save Contact
+                <Button type="submit" className="w-full" size="lg" disabled={loading}>
+                  {loading ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    'Save Contact'
+                  )}
                 </Button>
               </form>
             </motion.div>
