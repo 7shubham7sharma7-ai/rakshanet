@@ -10,7 +10,9 @@ import {
   where, 
   orderBy,
   Timestamp,
-  setDoc
+  setDoc,
+  serverTimestamp,
+  GeoPoint
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -64,6 +66,34 @@ export interface EmergencySession {
   triggerType: 'manual' | 'rapid' | 'voice' | 'auto' | 'panic';
 }
 
+export interface FirestoreChatMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  senderType: 'user' | 'helper' | 'contact' | 'system';
+  content: string;
+  timestamp: Timestamp;
+  status?: 'sent' | 'delivered' | 'read';
+}
+
+export interface EmergencyAlert {
+  id: string;
+  userId: string;
+  userName: string;
+  userPhone?: string;
+  location: {
+    geopoint: GeoPoint;
+    accuracy: number;
+    address?: string;
+  };
+  contacts: EmergencyContact[];
+  status: 'active' | 'resolved' | 'cancelled';
+  triggerType: string;
+  createdAt: any;
+  updatedAt: any;
+  messages: FirestoreChatMessage[];
+}
+
 interface EmergencyContextType {
   // State
   isEmergencyActive: boolean;
@@ -74,13 +104,13 @@ interface EmergencyContextType {
   helpers: Helper[];
   
   // Actions
-  triggerSOS: (type: EmergencySession['triggerType']) => void;
+  triggerSOS: (type: EmergencySession['triggerType']) => Promise<void>;
   cancelSOS: () => void;
-  endEmergency: () => void;
-  updateLocation: () => Promise<void>;
-  addContact: (contact: Omit<EmergencyContact, 'id'>) => void;
-  removeContact: (id: string) => void;
-  sendMessage: (content: string) => void;
+  endEmergency: () => Promise<void>;
+  updateLocation: () => Promise<Location | null>;
+  addContact: (contact: Omit<EmergencyContact, 'id'>) => Promise<void>;
+  removeContact: (id: string) => Promise<void>;
+  sendMessage: (content: string) => Promise<void>;
   
   // SOS Button State
   sosHoldProgress: number;
@@ -102,7 +132,7 @@ const MOCK_HELPERS: Helper[] = [
 ];
 
 export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user } = useAuth();
+  const { user, userProfile } = useAuth();
   
   const [isEmergencyActive, setIsEmergencyActive] = useState(false);
   const [currentSession, setCurrentSession] = useState<EmergencySession | null>(null);
@@ -132,6 +162,8 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         contactsList.push({ id: doc.id, ...doc.data() } as EmergencyContact);
       });
       setContacts(contactsList);
+    }, (error) => {
+      console.error('Error fetching contacts:', error);
     });
 
     return unsubscribe;
@@ -154,45 +186,60 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         helpersList.push({ id: doc.id, ...doc.data() } as Helper);
       });
       setHelpers(helpersList);
+    }, (error) => {
+      console.error('Error fetching helpers:', error);
+      setHelpers(MOCK_HELPERS);
     });
 
     return unsubscribe;
   }, []);
 
-  // Subscribe to active emergency session
+  // Subscribe to active emergency alerts
   useEffect(() => {
     if (!user) return;
 
-    const sessionsRef = collection(db, 'emergencies');
+    const alertsRef = collection(db, 'alerts');
     const q = query(
-      sessionsRef, 
+      alertsRef, 
       where('userId', '==', user.uid),
       where('status', '==', 'active')
     );
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
       if (!snapshot.empty) {
-        const sessionDoc = snapshot.docs[0];
-        const data = sessionDoc.data();
+        const alertDoc = snapshot.docs[0];
+        const data = alertDoc.data();
         setCurrentSession({
-          id: sessionDoc.id,
-          ...data,
-          startTime: data.startTime?.toDate() || new Date(),
-          endTime: data.endTime?.toDate(),
+          id: alertDoc.id,
+          startTime: data.createdAt?.toDate() || new Date(),
+          endTime: data.updatedAt?.toDate(),
+          location: {
+            latitude: data.location?.geopoint?.latitude || 0,
+            longitude: data.location?.geopoint?.longitude || 0,
+            accuracy: data.location?.accuracy || 0,
+            timestamp: Date.now(),
+            address: data.location?.address
+          },
+          contacts: data.contacts || [],
+          helpers: helpers.filter(h => h.status === 'available'),
           messages: data.messages?.map((m: any) => ({
             ...m,
             timestamp: m.timestamp?.toDate() || new Date()
-          })) || []
+          })) || [],
+          status: data.status,
+          triggerType: data.triggerType
         } as EmergencySession);
         setIsEmergencyActive(true);
       } else {
         setCurrentSession(null);
         setIsEmergencyActive(false);
       }
+    }, (error) => {
+      console.error('Error fetching alerts:', error);
     });
 
     return unsubscribe;
-  }, [user]);
+  }, [user, helpers]);
 
   // Calculate risk level based on time and location
   useEffect(() => {
@@ -218,8 +265,8 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   }, [showConfirmation, confirmationTimeout]);
 
-  const updateLocation = useCallback(async () => {
-    return new Promise<void>((resolve, reject) => {
+  const updateLocation = useCallback(async (): Promise<Location | null> => {
+    return new Promise((resolve, reject) => {
       if (!navigator.geolocation) {
         reject(new Error('Geolocation not supported'));
         return;
@@ -227,13 +274,14 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          setLocation({
+          const newLocation: Location = {
             latitude: position.coords.latitude,
             longitude: position.coords.longitude,
             accuracy: position.coords.accuracy,
             timestamp: position.timestamp,
-          });
-          resolve();
+          };
+          setLocation(newLocation);
+          resolve(newLocation);
         },
         (error) => {
           console.error('Location error:', error);
@@ -245,21 +293,39 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, []);
 
   const triggerSOS = useCallback(async (type: EmergencySession['triggerType']) => {
-    if (!user) return;
+    if (!user) {
+      console.error('User not authenticated');
+      return;
+    }
     
     setShowConfirmation(false);
     setIsEmergencyActive(true);
     
-    const currentLocation = location || { latitude: 0, longitude: 0, accuracy: 0, timestamp: Date.now() };
+    // Get current location
+    let currentLocation = location;
+    try {
+      currentLocation = await updateLocation();
+    } catch (error) {
+      console.error('Could not get location:', error);
+    }
+
+    const finalLocation = currentLocation || { latitude: 0, longitude: 0, accuracy: 0, timestamp: Date.now() };
     
-    const sessionData = {
+    // Create alert in Firestore
+    const alertData: Omit<EmergencyAlert, 'id'> = {
       userId: user.uid,
-      userEmail: user.email,
-      userName: user.displayName || 'User',
-      startTime: Timestamp.now(),
-      location: currentLocation,
-      contacts,
-      helpers: helpers.filter(h => h.status === 'available'),
+      userName: userProfile?.displayName || user.displayName || 'User',
+      userPhone: userProfile?.phone || user.phoneNumber || undefined,
+      location: {
+        geopoint: new GeoPoint(finalLocation.latitude, finalLocation.longitude),
+        accuracy: finalLocation.accuracy,
+        address: finalLocation.address
+      },
+      contacts: contacts,
+      status: 'active',
+      triggerType: type,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
       messages: [{
         id: `msg-${Date.now()}`,
         senderId: 'system',
@@ -273,19 +339,27 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           ? '🎤 Voice-activated emergency'
           : '🆘 SOS Alert activated',
         timestamp: Timestamp.now(),
-      }],
-      status: 'active',
-      triggerType: type,
+        status: 'sent'
+      }]
     };
     
     try {
-      const docRef = await addDoc(collection(db, 'emergencies'), sessionData);
-      console.log('Emergency created:', docRef.id);
-      updateLocation();
+      const docRef = await addDoc(collection(db, 'alerts'), alertData);
+      console.log('Emergency alert created:', docRef.id);
+      
+      // Also save to user's alert history
+      await setDoc(doc(db, 'users', user.uid, 'alertHistory', docRef.id), {
+        alertId: docRef.id,
+        createdAt: serverTimestamp(),
+        triggerType: type,
+        status: 'active'
+      });
+      
     } catch (error) {
-      console.error('Error creating emergency:', error);
+      console.error('Error creating emergency alert:', error);
+      setIsEmergencyActive(false);
     }
-  }, [user, location, contacts, helpers, updateLocation]);
+  }, [user, userProfile, location, contacts, updateLocation]);
 
   const cancelSOS = useCallback(() => {
     setShowConfirmation(false);
@@ -295,11 +369,17 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, []);
 
   const endEmergency = useCallback(async () => {
-    if (currentSession) {
+    if (currentSession && user) {
       try {
-        await updateDoc(doc(db, 'emergencies', currentSession.id), {
-          endTime: Timestamp.now(),
+        await updateDoc(doc(db, 'alerts', currentSession.id), {
           status: 'resolved',
+          updatedAt: serverTimestamp(),
+        });
+        
+        // Update user's alert history
+        await updateDoc(doc(db, 'users', user.uid, 'alertHistory', currentSession.id), {
+          status: 'resolved',
+          resolvedAt: serverTimestamp()
         });
       } catch (error) {
         console.error('Error ending emergency:', error);
@@ -307,15 +387,19 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
     setIsEmergencyActive(false);
     setCurrentSession(null);
-  }, [currentSession]);
+  }, [currentSession, user]);
 
   const addContact = useCallback(async (contact: Omit<EmergencyContact, 'id'>) => {
     if (!user) return;
     
     try {
-      await addDoc(collection(db, 'users', user.uid, 'contacts'), contact);
+      await addDoc(collection(db, 'users', user.uid, 'contacts'), {
+        ...contact,
+        createdAt: serverTimestamp()
+      });
     } catch (error) {
       console.error('Error adding contact:', error);
+      throw error;
     }
   }, [user]);
 
@@ -326,6 +410,7 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       await deleteDoc(doc(db, 'users', user.uid, 'contacts', id));
     } catch (error) {
       console.error('Error removing contact:', error);
+      throw error;
     }
   }, [user]);
 
@@ -335,25 +420,29 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const message: ChatMessage = {
       id: `msg-${Date.now()}`,
       senderId: user.uid,
-      senderName: user.displayName || 'You',
+      senderName: userProfile?.displayName || 'You',
       senderType: 'user',
-      content,
+      content: content.trim().slice(0, 1000), // Limit message length
       timestamp: new Date(),
       status: 'sent',
     };
     
     try {
       const currentMessages = currentSession.messages || [];
-      await updateDoc(doc(db, 'emergencies', currentSession.id), {
-        messages: [...currentMessages, {
-          ...message,
-          timestamp: Timestamp.fromDate(message.timestamp)
-        }]
+      const messagesForFirestore = [...currentMessages, message].map(m => ({
+        ...m,
+        timestamp: m.timestamp instanceof Date ? Timestamp.fromDate(m.timestamp) : m.timestamp
+      }));
+      
+      await updateDoc(doc(db, 'alerts', currentSession.id), {
+        messages: messagesForFirestore,
+        updatedAt: serverTimestamp()
       });
     } catch (error) {
       console.error('Error sending message:', error);
+      throw error;
     }
-  }, [currentSession, user]);
+  }, [currentSession, user, userProfile]);
 
   const registerRapidTap = useCallback(() => {
     setRapidTapCount(prev => {
