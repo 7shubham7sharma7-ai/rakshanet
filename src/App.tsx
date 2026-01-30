@@ -2,38 +2,118 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { LanguageProvider } from "@/lib/i18n";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { EmergencyProvider } from "@/contexts/EmergencyContext";
 import Index from "./pages/Index";
 import ChatPage from "./pages/ChatPage";
 import ContactsPage from "./pages/ContactsPage";
 import HelpersPage from "./pages/HelpersPage";
 import SettingsPage from "./pages/SettingsPage";
+import AuthPage from "./pages/AuthPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
+// Protected Route Component
+const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, loading } = useAuth();
+  
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+  
+  if (!user) {
+    return <Navigate to="/auth" replace />;
+  }
+  
+  return <>{children}</>;
+};
+
+// Auth Route - redirect to home if already logged in
+const AuthRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, loading } = useAuth();
+  
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+  
+  if (user) {
+    return <Navigate to="/" replace />;
+  }
+  
+  return <>{children}</>;
+};
+
+const AppRoutes = () => {
+  return (
+    <Routes>
+      <Route path="/auth" element={
+        <AuthRoute>
+          <AuthPage />
+        </AuthRoute>
+      } />
+      <Route path="/" element={
+        <ProtectedRoute>
+          <EmergencyProvider>
+            <Index />
+          </EmergencyProvider>
+        </ProtectedRoute>
+      } />
+      <Route path="/chat" element={
+        <ProtectedRoute>
+          <EmergencyProvider>
+            <ChatPage />
+          </EmergencyProvider>
+        </ProtectedRoute>
+      } />
+      <Route path="/contacts" element={
+        <ProtectedRoute>
+          <EmergencyProvider>
+            <ContactsPage />
+          </EmergencyProvider>
+        </ProtectedRoute>
+      } />
+      <Route path="/helpers" element={
+        <ProtectedRoute>
+          <EmergencyProvider>
+            <HelpersPage />
+          </EmergencyProvider>
+        </ProtectedRoute>
+      } />
+      <Route path="/settings" element={
+        <ProtectedRoute>
+          <EmergencyProvider>
+            <SettingsPage />
+          </EmergencyProvider>
+        </ProtectedRoute>
+      } />
+      <Route path="*" element={<NotFound />} />
+    </Routes>
+  );
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <LanguageProvider>
-      <EmergencyProvider>
+      <AuthProvider>
         <TooltipProvider>
           <Toaster />
           <Sonner />
           <BrowserRouter>
-            <Routes>
-              <Route path="/" element={<Index />} />
-              <Route path="/chat" element={<ChatPage />} />
-              <Route path="/contacts" element={<ContactsPage />} />
-              <Route path="/helpers" element={<HelpersPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-              <Route path="*" element={<NotFound />} />
-            </Routes>
+            <AppRoutes />
           </BrowserRouter>
         </TooltipProvider>
-      </EmergencyProvider>
+      </AuthProvider>
     </LanguageProvider>
   </QueryClientProvider>
 );
