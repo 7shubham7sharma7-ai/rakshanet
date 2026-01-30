@@ -1,4 +1,19 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { 
+  collection, 
+  doc, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  onSnapshot, 
+  query, 
+  where, 
+  orderBy,
+  Timestamp,
+  setDoc
+} from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { useAuth } from '@/contexts/AuthContext';
 
 export interface Location {
   latitude: number;
@@ -79,7 +94,7 @@ interface EmergencyContextType {
 
 const EmergencyContext = createContext<EmergencyContextType | undefined>(undefined);
 
-// Mock helpers for demo
+// Mock helpers for demo (will be replaced with real data from Firestore)
 const MOCK_HELPERS: Helper[] = [
   { id: '1', name: 'Rahul Sharma', phone: '+91 98765 43210', status: 'available', distance: 0.5, eta: 3, avatar: '' },
   { id: '2', name: 'Priya Patel', phone: '+91 87654 32109', status: 'available', distance: 1.2, eta: 7, avatar: '' },
@@ -87,12 +102,14 @@ const MOCK_HELPERS: Helper[] = [
 ];
 
 export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user } = useAuth();
+  
   const [isEmergencyActive, setIsEmergencyActive] = useState(false);
   const [currentSession, setCurrentSession] = useState<EmergencySession | null>(null);
   const [location, setLocation] = useState<Location | null>(null);
   const [riskLevel, setRiskLevel] = useState<'low' | 'medium' | 'high'>('low');
   const [contacts, setContacts] = useState<EmergencyContact[]>([]);
-  const [helpers] = useState<Helper[]>(MOCK_HELPERS);
+  const [helpers, setHelpers] = useState<Helper[]>(MOCK_HELPERS);
   
   // SOS Button State
   const [sosHoldProgress, setSosHoldProgress] = useState(0);
@@ -101,18 +118,81 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [rapidTapCount, setRapidTapCount] = useState(0);
   const rapidTapTimeoutRef = React.useRef<NodeJS.Timeout>();
 
-  // Load contacts from localStorage
+  // Subscribe to contacts from Firestore
   useEffect(() => {
-    const saved = localStorage.getItem('emergency-contacts');
-    if (saved) {
-      setContacts(JSON.parse(saved));
+    if (!user) {
+      setContacts([]);
+      return;
     }
+
+    const contactsRef = collection(db, 'users', user.uid, 'contacts');
+    const unsubscribe = onSnapshot(contactsRef, (snapshot) => {
+      const contactsList: EmergencyContact[] = [];
+      snapshot.forEach((doc) => {
+        contactsList.push({ id: doc.id, ...doc.data() } as EmergencyContact);
+      });
+      setContacts(contactsList);
+    });
+
+    return unsubscribe;
+  }, [user]);
+
+  // Subscribe to helpers from Firestore
+  useEffect(() => {
+    const helpersRef = collection(db, 'helpers');
+    const q = query(helpersRef, where('status', 'in', ['available', 'busy']));
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      if (snapshot.empty) {
+        // Keep mock helpers if no real data
+        setHelpers(MOCK_HELPERS);
+        return;
+      }
+      
+      const helpersList: Helper[] = [];
+      snapshot.forEach((doc) => {
+        helpersList.push({ id: doc.id, ...doc.data() } as Helper);
+      });
+      setHelpers(helpersList);
+    });
+
+    return unsubscribe;
   }, []);
 
-  // Save contacts to localStorage
+  // Subscribe to active emergency session
   useEffect(() => {
-    localStorage.setItem('emergency-contacts', JSON.stringify(contacts));
-  }, [contacts]);
+    if (!user) return;
+
+    const sessionsRef = collection(db, 'emergencies');
+    const q = query(
+      sessionsRef, 
+      where('userId', '==', user.uid),
+      where('status', '==', 'active')
+    );
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      if (!snapshot.empty) {
+        const sessionDoc = snapshot.docs[0];
+        const data = sessionDoc.data();
+        setCurrentSession({
+          id: sessionDoc.id,
+          ...data,
+          startTime: data.startTime?.toDate() || new Date(),
+          endTime: data.endTime?.toDate(),
+          messages: data.messages?.map((m: any) => ({
+            ...m,
+            timestamp: m.timestamp?.toDate() || new Date()
+          })) || []
+        } as EmergencySession);
+        setIsEmergencyActive(true);
+      } else {
+        setCurrentSession(null);
+        setIsEmergencyActive(false);
+      }
+    });
+
+    return unsubscribe;
+  }, [user]);
 
   // Calculate risk level based on time and location
   useEffect(() => {
@@ -134,7 +214,6 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }, 1000);
       return () => clearTimeout(timer);
     } else if (showConfirmation && confirmationTimeout === 0) {
-      // Auto-trigger SOS on timeout (no response = danger)
       triggerSOS('auto');
     }
   }, [showConfirmation, confirmationTimeout]);
@@ -165,14 +244,20 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     });
   }, []);
 
-  const triggerSOS = useCallback((type: EmergencySession['triggerType']) => {
+  const triggerSOS = useCallback(async (type: EmergencySession['triggerType']) => {
+    if (!user) return;
+    
     setShowConfirmation(false);
     setIsEmergencyActive(true);
     
-    const session: EmergencySession = {
-      id: `sos-${Date.now()}`,
-      startTime: new Date(),
-      location: location || { latitude: 0, longitude: 0, accuracy: 0, timestamp: Date.now() },
+    const currentLocation = location || { latitude: 0, longitude: 0, accuracy: 0, timestamp: Date.now() };
+    
+    const sessionData = {
+      userId: user.uid,
+      userEmail: user.email,
+      userName: user.displayName || 'User',
+      startTime: Timestamp.now(),
+      location: currentLocation,
       contacts,
       helpers: helpers.filter(h => h.status === 'available'),
       messages: [{
@@ -187,18 +272,20 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           : type === 'voice'
           ? '🎤 Voice-activated emergency'
           : '🆘 SOS Alert activated',
-        timestamp: new Date(),
+        timestamp: Timestamp.now(),
       }],
       status: 'active',
       triggerType: type,
     };
     
-    setCurrentSession(session);
-    updateLocation();
-    
-    // In production: Send real notifications, SMS, etc.
-    console.log('SOS Triggered:', session);
-  }, [location, contacts, helpers, updateLocation]);
+    try {
+      const docRef = await addDoc(collection(db, 'emergencies'), sessionData);
+      console.log('Emergency created:', docRef.id);
+      updateLocation();
+    } catch (error) {
+      console.error('Error creating emergency:', error);
+    }
+  }, [user, location, contacts, helpers, updateLocation]);
 
   const cancelSOS = useCallback(() => {
     setShowConfirmation(false);
@@ -207,61 +294,77 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setRapidTapCount(0);
   }, []);
 
-  const endEmergency = useCallback(() => {
+  const endEmergency = useCallback(async () => {
     if (currentSession) {
-      setCurrentSession({
-        ...currentSession,
-        endTime: new Date(),
-        status: 'resolved',
-      });
+      try {
+        await updateDoc(doc(db, 'emergencies', currentSession.id), {
+          endTime: Timestamp.now(),
+          status: 'resolved',
+        });
+      } catch (error) {
+        console.error('Error ending emergency:', error);
+      }
     }
     setIsEmergencyActive(false);
     setCurrentSession(null);
   }, [currentSession]);
 
-  const addContact = useCallback((contact: Omit<EmergencyContact, 'id'>) => {
-    const newContact: EmergencyContact = {
-      ...contact,
-      id: `contact-${Date.now()}`,
-    };
-    setContacts(prev => [...prev, newContact]);
-  }, []);
+  const addContact = useCallback(async (contact: Omit<EmergencyContact, 'id'>) => {
+    if (!user) return;
+    
+    try {
+      await addDoc(collection(db, 'users', user.uid, 'contacts'), contact);
+    } catch (error) {
+      console.error('Error adding contact:', error);
+    }
+  }, [user]);
 
-  const removeContact = useCallback((id: string) => {
-    setContacts(prev => prev.filter(c => c.id !== id));
-  }, []);
+  const removeContact = useCallback(async (id: string) => {
+    if (!user) return;
+    
+    try {
+      await deleteDoc(doc(db, 'users', user.uid, 'contacts', id));
+    } catch (error) {
+      console.error('Error removing contact:', error);
+    }
+  }, [user]);
 
-  const sendMessage = useCallback((content: string) => {
-    if (!currentSession) return;
+  const sendMessage = useCallback(async (content: string) => {
+    if (!currentSession || !user) return;
     
     const message: ChatMessage = {
       id: `msg-${Date.now()}`,
-      senderId: 'user',
-      senderName: 'You',
+      senderId: user.uid,
+      senderName: user.displayName || 'You',
       senderType: 'user',
       content,
       timestamp: new Date(),
       status: 'sent',
     };
     
-    setCurrentSession(prev => prev ? {
-      ...prev,
-      messages: [...prev.messages, message],
-    } : null);
-  }, [currentSession]);
+    try {
+      const currentMessages = currentSession.messages || [];
+      await updateDoc(doc(db, 'emergencies', currentSession.id), {
+        messages: [...currentMessages, {
+          ...message,
+          timestamp: Timestamp.fromDate(message.timestamp)
+        }]
+      });
+    } catch (error) {
+      console.error('Error sending message:', error);
+    }
+  }, [currentSession, user]);
 
   const registerRapidTap = useCallback(() => {
     setRapidTapCount(prev => {
       const newCount = prev + 1;
       if (newCount >= 3) {
-        // Trigger immediate SOS
         triggerSOS('rapid');
         return 0;
       }
       return newCount;
     });
 
-    // Reset count after 2 seconds of no taps
     if (rapidTapTimeoutRef.current) {
       clearTimeout(rapidTapTimeoutRef.current);
     }

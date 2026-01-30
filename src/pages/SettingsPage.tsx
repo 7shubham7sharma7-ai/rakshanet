@@ -8,12 +8,17 @@ import {
   Shield, 
   ChevronRight,
   Moon,
-  Info
+  Info,
+  LogOut,
+  User
 } from 'lucide-react';
 import { useLanguage } from '@/lib/i18n';
+import { useAuth } from '@/contexts/AuthContext';
 import { LanguageSelector } from '@/components/LanguageSelector';
 import { BottomNav } from '@/components/BottomNav';
 import { Switch } from '@/components/ui/switch';
+import { Button } from '@/components/ui/button';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 
 interface SettingItemProps {
   icon: React.ElementType;
@@ -50,9 +55,18 @@ const SettingItem: React.FC<SettingItemProps> = ({
 
 const SettingsPage: React.FC = () => {
   const { t } = useLanguage();
+  const { user, userProfile, logout } = useAuth();
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background pb-20">
@@ -62,6 +76,25 @@ const SettingsPage: React.FC = () => {
       </header>
 
       <div className="p-4 space-y-6">
+        {/* User Profile Section */}
+        <section className="bg-card border border-border rounded-xl p-4">
+          <div className="flex items-center gap-4">
+            <Avatar className="h-16 w-16">
+              <AvatarFallback className="bg-primary text-primary-foreground text-lg">
+                {(userProfile?.displayName || user?.email || 'U').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex-1 min-w-0">
+              <h3 className="font-semibold text-foreground truncate">
+                {userProfile?.displayName || 'User'}
+              </h3>
+              <p className="text-sm text-muted-foreground truncate">
+                {user?.email}
+              </p>
+            </div>
+          </div>
+        </section>
+
         {/* Language Section */}
         <section>
           <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3 px-1">
@@ -158,6 +191,19 @@ const SettingsPage: React.FC = () => {
               description="Version 1.0.0"
             />
           </div>
+        </section>
+
+        {/* Logout */}
+        <section>
+          <Button 
+            variant="destructive" 
+            className="w-full gap-2" 
+            size="lg"
+            onClick={handleLogout}
+          >
+            <LogOut className="w-5 h-5" />
+            Sign Out
+          </Button>
         </section>
 
         {/* App Info */}
