@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Shield, History } from 'lucide-react';
+import { Shield, History, Bell } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { SOSButton } from '@/components/SOSButton';
 import { EmergencyButton } from '@/components/EmergencyButton';
@@ -16,11 +16,18 @@ import { Button } from '@/components/ui/button';
 
 const Index = () => {
   const { t } = useLanguage();
-  const { updateLocation, location, contacts } = useEmergency();
+  const { updateLocation, location, contacts, nearbyAlerts } = useEmergency();
 
   useEffect(() => {
-    // Request location on mount
+    // Request location on mount and start tracking
     updateLocation().catch(console.error);
+    
+    // Set up periodic location updates
+    const interval = setInterval(() => {
+      updateLocation().catch(console.error);
+    }, 30000); // Update every 30 seconds
+    
+    return () => clearInterval(interval);
   }, [updateLocation]);
 
   return (
@@ -38,8 +45,18 @@ const Index = () => {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Link to="/helpers" className="relative">
+              <Button variant="ghost" size="icon">
+                <Bell className="w-5 h-5" />
+                {nearbyAlerts.length > 0 && (
+                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-destructive text-destructive-foreground text-xs rounded-full flex items-center justify-center">
+                    {nearbyAlerts.length}
+                  </span>
+                )}
+              </Button>
+            </Link>
             <Link to="/alerts">
-              <Button variant="ghost" size="icon" className="relative">
+              <Button variant="ghost" size="icon">
                 <History className="w-5 h-5" />
               </Button>
             </Link>
@@ -52,6 +69,23 @@ const Index = () => {
       <div className="px-4 py-4">
         <RiskIndicator />
       </div>
+
+      {/* Nearby Alert Banner */}
+      {nearbyAlerts.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mx-4 mb-4"
+        >
+          <Link to="/helpers">
+            <div className="p-3 rounded-xl bg-destructive/10 border border-destructive/30">
+              <p className="text-sm text-center text-destructive font-medium">
+                🚨 {nearbyAlerts.length} emergency{nearbyAlerts.length > 1 ? 'ies' : ''} nearby - Tap to help
+              </p>
+            </div>
+          </Link>
+        </motion.div>
+      )}
 
       {/* Big Red Emergency Button */}
       <motion.div 

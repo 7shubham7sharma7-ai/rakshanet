@@ -1,12 +1,31 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Shield, AlertTriangle, AlertCircle } from 'lucide-react';
-import { useEmergency } from '@/contexts/EmergencyContext';
 import { useLanguage } from '@/lib/i18n';
 
+type RiskLevel = 'low' | 'medium' | 'high';
+
 export const RiskIndicator: React.FC = () => {
-  const { riskLevel } = useEmergency();
   const { t } = useLanguage();
+  const [riskLevel, setRiskLevel] = useState<RiskLevel>('low');
+
+  // Calculate risk level based on time
+  useEffect(() => {
+    const calculateRisk = () => {
+      const hour = new Date().getHours();
+      if (hour >= 22 || hour < 5) {
+        setRiskLevel('high');
+      } else if (hour >= 18 || hour < 7) {
+        setRiskLevel('medium');
+      } else {
+        setRiskLevel('low');
+      }
+    };
+    
+    calculateRisk();
+    const interval = setInterval(calculateRisk, 60000); // Update every minute
+    return () => clearInterval(interval);
+  }, []);
 
   const config = {
     low: {
