@@ -81,6 +81,7 @@ export const translations: Record<LanguageCode, Record<string, string>> = {
     immediateHelp: 'Immediate Help',
     whisperMode: 'Whisper Mode',
     listeningForCommands: 'Listening for commands...',
+    emergency: 'EMERGENCY',
   },
   hi: {
     appName: 'रक्षासेतु',
@@ -143,6 +144,7 @@ export const translations: Record<LanguageCode, Record<string, string>> = {
     immediateHelp: 'तत्काल मदद',
     whisperMode: 'फुसफुसाहट मोड',
     listeningForCommands: 'कमांड सुन रहे हैं...',
+    emergency: 'आपातकाल',
   },
   ta: {
     appName: 'ரக்ஷாசேது',
