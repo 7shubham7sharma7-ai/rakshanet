@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 export const EmergencyButton: React.FC = () => {
   const {
     isEmergencyActive,
-    triggerSOS,
+    triggerEmergency,
     isLoadingLocation,
     locationError,
     updateLocation,
@@ -24,8 +24,8 @@ export const EmergencyButton: React.FC = () => {
     try {
       // First, request location permission and get GPS coordinates
       await updateLocation();
-      // Then trigger the SOS
-      await triggerSOS('manual');
+      // Then trigger the emergency
+      await triggerEmergency();
     } catch (error) {
       console.error('Emergency trigger failed:', error);
     } finally {
@@ -103,7 +103,7 @@ export const EmergencyButton: React.FC = () => {
       <p className="text-sm text-muted-foreground text-center max-w-[280px]">
         {isEmergencyActive 
           ? "Emergency is active. Help is on the way."
-          : "Press the emergency button to send your location to all emergency contacts"
+          : "Press the emergency button to alert nearby users within 5km"
         }
       </p>
     </div>

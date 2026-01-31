@@ -6,29 +6,18 @@ import {
   signOut,
   onAuthStateChanged,
   sendPasswordResetEmail,
-  updateProfile,
-  RecaptchaVerifier,
-  signInWithPhoneNumber,
-  ConfirmationResult,
-  PhoneAuthProvider,
-  signInWithCredential
+  updateProfile
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 
-declare global {
-  interface Window {
-    recaptchaVerifier: RecaptchaVerifier;
-    confirmationResult: ConfirmationResult;
-  }
-}
-
 export interface UserProfile {
   uid: string;
-  email?: string;
-  phone?: string;
+  email: string;
   displayName: string;
-  language?: string;
+  lat?: number;
+  lng?: number;
+  lastUpdated?: any;
   createdAt: any;
   lastLogin?: any;
 }
@@ -42,9 +31,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   updateUserProfile: (data: Partial<UserProfile>) => Promise<void>;
-  sendPhoneOTP: (phoneNumber: string, recaptchaContainerId: string) => Promise<void>;
-  verifyPhoneOTP: (otp: string, name?: string) => Promise<void>;
-  isNewPhoneUser: boolean;
+  updateUserLocation: (lat: number, lng: number) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -53,7 +40,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isNewPhoneUser, setIsNewPhoneUser] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -106,69 +92,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUserProfile(profile);
   };
 
-  const sendPhoneOTP = async (phoneNumber: string, recaptchaContainerId: string) => {
-    try {
-      // Clean up existing verifier
-      if (window.recaptchaVerifier) {
-        window.recaptchaVerifier.clear();
-      }
-
-      window.recaptchaVerifier = new RecaptchaVerifier(auth, recaptchaContainerId, {
-        size: 'invisible',
-        callback: () => {
-          console.log('reCAPTCHA solved');
-        },
-        'expired-callback': () => {
-          console.log('reCAPTCHA expired');
-        }
-      });
-
-      const formattedPhone = phoneNumber.startsWith('+') ? phoneNumber : `+91${phoneNumber}`;
-      const confirmationResult = await signInWithPhoneNumber(auth, formattedPhone, window.recaptchaVerifier);
-      window.confirmationResult = confirmationResult;
-    } catch (error) {
-      console.error('Error sending OTP:', error);
-      throw error;
-    }
-  };
-
-  const verifyPhoneOTP = async (otp: string, name?: string) => {
-    if (!window.confirmationResult) {
-      throw new Error('No confirmation result found. Please request OTP again.');
-    }
-
-    const result = await window.confirmationResult.confirm(otp);
-    const firebaseUser = result.user;
-
-    // Check if user profile exists
-    const profileDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-    
-    if (!profileDoc.exists()) {
-      // New user - create profile
-      const profile: UserProfile = {
-        uid: firebaseUser.uid,
-        phone: firebaseUser.phoneNumber || undefined,
-        displayName: name || 'User',
-        createdAt: serverTimestamp(),
-        lastLogin: serverTimestamp(),
-      };
-      
-      await setDoc(doc(db, 'users', firebaseUser.uid), profile);
-      setUserProfile(profile);
-      
-      if (name) {
-        await updateProfile(firebaseUser, { displayName: name });
-      }
-    } else {
-      setUserProfile(profileDoc.data() as UserProfile);
-      await setDoc(doc(db, 'users', firebaseUser.uid), {
-        lastLogin: serverTimestamp()
-      }, { merge: true });
-    }
-    
-    setIsNewPhoneUser(false);
-  };
-
   const logout = async () => {
     await signOut(auth);
     setUserProfile(null);
@@ -185,6 +108,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUserProfile(prev => prev ? { ...prev, ...data } : null);
   };
 
+  const updateUserLocation = async (lat: number, lng: number) => {
+    if (!user) return;
+    
+    const locationData = {
+      lat,
+      lng,
+      lastUpdated: serverTimestamp()
+    };
+    
+    await setDoc(doc(db, 'users', user.uid), locationData, { merge: true });
+    setUserProfile(prev => prev ? { ...prev, ...locationData } : null);
+  };
+
   return (
     <AuthContext.Provider value={{
       user,
@@ -195,9 +131,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       logout,
       resetPassword,
       updateUserProfile,
-      sendPhoneOTP,
-      verifyPhoneOTP,
-      isNewPhoneUser,
+      updateUserLocation,
     }}>
       {children}
     </AuthContext.Provider>

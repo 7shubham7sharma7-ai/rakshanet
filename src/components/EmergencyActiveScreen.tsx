@@ -3,74 +3,30 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Shield, 
   MapPin, 
-  Phone, 
-  Navigation, 
   MessageCircle,
   CheckCircle,
-  Clock,
-  X
+  X,
+  Users
 } from 'lucide-react';
-import { useEmergency, Helper } from '@/contexts/EmergencyContext';
+import { useEmergency } from '@/contexts/EmergencyContext';
 import { useLanguage } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-
-const HelperCard: React.FC<{ helper: Helper }> = ({ helper }) => {
-  const { t } = useLanguage();
-  
-  return (
-    <motion.div
-      initial={{ opacity: 0, x: -20 }}
-      animate={{ opacity: 1, x: 0 }}
-      className="bg-muted/50 rounded-xl p-4 flex items-center gap-4"
-    >
-      <Avatar className="h-12 w-12 border-2 border-accent">
-        <AvatarFallback className="bg-accent/20 text-accent font-semibold">
-          {helper.name.split(' ').map(n => n[0]).join('')}
-        </AvatarFallback>
-      </Avatar>
-      
-      <div className="flex-1 min-w-0">
-        <h4 className="font-semibold text-foreground truncate">{helper.name}</h4>
-        <div className="flex items-center gap-3 text-sm text-muted-foreground">
-          <span className="flex items-center gap-1">
-            <MapPin className="w-3 h-3" />
-            {helper.distance} km
-          </span>
-          <span className="flex items-center gap-1">
-            <Clock className="w-3 h-3" />
-            {helper.eta} min
-          </span>
-        </div>
-      </div>
-      
-      <div className="flex gap-2">
-        <Button size="icon" variant="secondary" className="h-10 w-10">
-          <Phone className="w-4 h-4" />
-        </Button>
-        <Button size="icon" variant="secondary" className="h-10 w-10">
-          <Navigation className="w-4 h-4" />
-        </Button>
-      </div>
-    </motion.div>
-  );
-};
+import { Link } from 'react-router-dom';
 
 export const EmergencyActiveScreen: React.FC = () => {
   const {
     isEmergencyActive,
-    currentSession,
+    currentEmergency,
     location,
-    endEmergency,
-    helpers,
+    resolveEmergency,
+    chatMessages,
+    contacts,
   } = useEmergency();
   const { t } = useLanguage();
 
-  const availableHelpers = helpers.filter(h => h.status === 'available');
-
   return (
     <AnimatePresence>
-      {isEmergencyActive && (
+      {isEmergencyActive && currentEmergency && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -78,18 +34,16 @@ export const EmergencyActiveScreen: React.FC = () => {
           className="fixed inset-0 bg-background z-40 overflow-y-auto"
         >
           {/* Header */}
-          <div className="sticky top-0 bg-primary/10 backdrop-blur-lg border-b border-primary/20 p-4">
+          <div className="sticky top-0 bg-destructive/10 backdrop-blur-lg border-b border-destructive/20 p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-3 h-3 rounded-full bg-primary animate-pulse" />
-                <span className="font-bold text-primary text-lg">
+                <div className="w-3 h-3 rounded-full bg-destructive animate-pulse" />
+                <span className="font-bold text-destructive text-lg">
                   {t('emergencyActive')}
                 </span>
               </div>
               <span className="text-sm text-muted-foreground">
-                {currentSession?.triggerType === 'rapid' ? '🚨 RAPID' : 
-                 currentSession?.triggerType === 'auto' ? '⚠️ AUTO' : 
-                 currentSession?.triggerType === 'voice' ? '🎤 VOICE' : '🆘 MANUAL'}
+                🆘 ACTIVE
               </span>
             </div>
           </div>
@@ -115,7 +69,7 @@ export const EmergencyActiveScreen: React.FC = () => {
               <div className="flex items-center gap-2 text-sm">
                 <CheckCircle className="w-4 h-4 text-accent" />
                 <span className="text-muted-foreground">
-                  {currentSession?.contacts.length || 0} contacts notified
+                  Nearby users are being notified
                 </span>
               </div>
             </motion.div>
@@ -132,56 +86,55 @@ export const EmergencyActiveScreen: React.FC = () => {
                 <span className="font-semibold">{t('yourLocation')}</span>
               </div>
               
-              {/* Map Placeholder */}
+              {/* Map Link */}
               <div className="h-32 bg-muted rounded-xl flex items-center justify-center mb-3">
                 <div className="text-center">
                   <MapPin className="w-8 h-8 text-primary mx-auto mb-2" />
                   <p className="text-sm text-muted-foreground">
-                    {location 
-                      ? `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`
-                      : 'Fetching location...'}
+                    {currentEmergency.lat !== 0 
+                      ? `${currentEmergency.lat.toFixed(4)}, ${currentEmergency.lng.toFixed(4)}`
+                      : 'Location unavailable'}
                   </p>
                 </div>
               </div>
               
-              <Button variant="secondary" className="w-full">
-                <Navigation className="w-4 h-4 mr-2" />
-                {t('shareLocation')}
+              <Button 
+                variant="secondary" 
+                className="w-full"
+                asChild
+              >
+                <a 
+                  href={`https://maps.google.com/?q=${currentEmergency.lat},${currentEmergency.lng}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <MapPin className="w-4 h-4 mr-2" />
+                  View on Map
+                </a>
               </Button>
             </motion.div>
 
-            {/* Helpers */}
+            {/* Nearby Users Info */}
             <motion.div
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               transition={{ delay: 0.3 }}
+              className="bg-card border border-border rounded-2xl p-4"
             >
-              <h3 className="font-semibold mb-3 flex items-center gap-2">
-                <span>{t('nearbyHelpers')}</span>
-                <span className="text-xs bg-accent/20 text-accent px-2 py-0.5 rounded-full">
-                  {availableHelpers.length} {t('available')}
-                </span>
-              </h3>
-              
-              <div className="space-y-3">
-                {availableHelpers.map((helper, index) => (
-                  <motion.div
-                    key={helper.id}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.4 + index * 0.1 }}
-                  >
-                    <HelperCard helper={helper} />
-                  </motion.div>
-                ))}
+              <div className="flex items-center gap-3 mb-3">
+                <Users className="w-5 h-5 text-secondary" />
+                <span className="font-semibold">Nearby Helpers</span>
               </div>
+              <p className="text-sm text-muted-foreground">
+                All users within 5km will receive an in-app alert and can join your emergency chat to coordinate help.
+              </p>
             </motion.div>
 
             {/* Chat Preview */}
             <motion.div
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.5 }}
+              transition={{ delay: 0.4 }}
               className="bg-card border border-border rounded-2xl p-4"
             >
               <div className="flex items-center justify-between mb-3">
@@ -190,24 +143,31 @@ export const EmergencyActiveScreen: React.FC = () => {
                   <span className="font-semibold">{t('emergencyChat')}</span>
                 </div>
                 <span className="text-xs bg-secondary/20 text-secondary px-2 py-0.5 rounded-full">
-                  {currentSession?.messages.length || 0} messages
+                  {chatMessages.length} messages
                 </span>
               </div>
               
               {/* Last Message Preview */}
-              {currentSession?.messages.slice(-1).map(msg => (
-                <div key={msg.id} className="bg-muted rounded-lg p-3 text-sm">
+              {chatMessages.slice(-1).map(msg => (
+                <div key={msg.id} className="bg-muted rounded-lg p-3 text-sm mb-3">
                   <span className="font-medium text-secondary">{msg.senderName}: </span>
-                  <span className="text-muted-foreground">{msg.content}</span>
+                  <span className="text-muted-foreground">{msg.text}</span>
                 </div>
               ))}
+
+              <Button variant="secondary" className="w-full" asChild>
+                <Link to="/chat">
+                  <MessageCircle className="w-4 h-4 mr-2" />
+                  Open Chat
+                </Link>
+              </Button>
             </motion.div>
           </div>
 
           {/* End Emergency Button */}
           <div className="fixed bottom-0 inset-x-0 p-4 bg-gradient-to-t from-background via-background to-transparent">
             <Button
-              onClick={endEmergency}
+              onClick={resolveEmergency}
               variant="outline"
               size="lg"
               className="w-full border-accent text-accent hover:bg-accent hover:text-accent-foreground"

@@ -33,7 +33,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
     return <Navigate to="/auth" replace />;
   }
   
-  return <>{children}</>;
+  return <EmergencyProvider>{children}</EmergencyProvider>;
 };
 
 // Auth Route - redirect to home if already logged in
@@ -65,44 +65,32 @@ const AppRoutes = () => {
       } />
       <Route path="/" element={
         <ProtectedRoute>
-          <EmergencyProvider>
-            <Index />
-          </EmergencyProvider>
+          <Index />
         </ProtectedRoute>
       } />
       <Route path="/chat" element={
         <ProtectedRoute>
-          <EmergencyProvider>
-            <ChatPage />
-          </EmergencyProvider>
+          <ChatPage />
         </ProtectedRoute>
       } />
       <Route path="/contacts" element={
         <ProtectedRoute>
-          <EmergencyProvider>
-            <ContactsPage />
-          </EmergencyProvider>
+          <ContactsPage />
         </ProtectedRoute>
       } />
       <Route path="/helpers" element={
         <ProtectedRoute>
-          <EmergencyProvider>
-            <HelpersPage />
-          </EmergencyProvider>
+          <HelpersPage />
         </ProtectedRoute>
       } />
       <Route path="/settings" element={
         <ProtectedRoute>
-          <EmergencyProvider>
-            <SettingsPage />
-          </EmergencyProvider>
+          <SettingsPage />
         </ProtectedRoute>
       } />
       <Route path="/alerts" element={
         <ProtectedRoute>
-          <EmergencyProvider>
-            <AlertsPage />
-          </EmergencyProvider>
+          <AlertsPage />
         </ProtectedRoute>
       } />
       <Route path="*" element={<NotFound />} />

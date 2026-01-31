@@ -9,7 +9,7 @@ export const ConfirmationPopup: React.FC = () => {
   const {
     showConfirmation,
     confirmationTimeout,
-    triggerSOS,
+    triggerEmergency,
     cancelSOS,
   } = useEmergency();
   const { t } = useLanguage();
@@ -65,7 +65,7 @@ export const ConfirmationPopup: React.FC = () => {
               {/* Buttons */}
               <div className="space-y-3">
                 <Button
-                  onClick={() => triggerSOS('manual')}
+                  onClick={() => triggerEmergency()}
                   variant="destructive"
                   size="lg"
                   className="w-full h-14 text-lg font-bold"
