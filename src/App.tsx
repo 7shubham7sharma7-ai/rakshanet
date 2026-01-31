@@ -12,6 +12,7 @@ import ContactsPage from "./pages/ContactsPage";
 import HelpersPage from "./pages/HelpersPage";
 import SettingsPage from "./pages/SettingsPage";
 import AuthPage from "./pages/AuthPage";
+import AlertsPage from "./pages/AlertsPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -94,6 +95,13 @@ const AppRoutes = () => {
         <ProtectedRoute>
           <EmergencyProvider>
             <SettingsPage />
+          </EmergencyProvider>
+        </ProtectedRoute>
+      } />
+      <Route path="/alerts" element={
+        <ProtectedRoute>
+          <EmergencyProvider>
+            <AlertsPage />
           </EmergencyProvider>
         </ProtectedRoute>
       } />
