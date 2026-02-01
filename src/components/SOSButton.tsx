@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Loader2, MapPin } from 'lucide-react';
 import { useEmergency } from '@/contexts/EmergencyContext';
 import { useLanguage } from '@/lib/i18n';
 
@@ -11,6 +12,8 @@ export const SOSButton: React.FC = () => {
     setShowConfirmation,
     registerRapidTap,
     rapidTapCount,
+    isLoadingLocation,
+    updateLocation,
   } = useEmergency();
   const { t } = useLanguage();
   
@@ -22,8 +25,11 @@ export const SOSButton: React.FC = () => {
   const HOLD_DURATION = 3000; // 3 seconds
   const PROGRESS_INTERVAL = 50; // Update every 50ms
 
-  const startHold = useCallback(() => {
-    if (isEmergencyActive) return;
+  const startHold = useCallback(async () => {
+    if (isEmergencyActive || isLoadingLocation) return;
+    
+    // Start getting location immediately when user starts holding
+    updateLocation().catch(console.error);
     
     isHoldingRef.current = true;
     progressRef.current = 0;
@@ -44,7 +50,7 @@ export const SOSButton: React.FC = () => {
         clearInterval(progressIntervalRef.current);
       }
     }, HOLD_DURATION);
-  }, [isEmergencyActive, setSosHoldProgress, setShowConfirmation]);
+  }, [isEmergencyActive, isLoadingLocation, setSosHoldProgress, setShowConfirmation, updateLocation]);
 
   const endHold = useCallback(() => {
     isHoldingRef.current = false;
@@ -57,7 +63,7 @@ export const SOSButton: React.FC = () => {
     }
     
     // If not completed, register as rapid tap
-    if (sosHoldProgress < 100) {
+    if (sosHoldProgress < 100 && sosHoldProgress > 0) {
       registerRapidTap();
     }
     
@@ -73,8 +79,8 @@ export const SOSButton: React.FC = () => {
   }, []);
 
   // Calculate SVG circle properties
-  const size = 200;
-  const strokeWidth = 6;
+  const size = 260;
+  const strokeWidth = 8;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - (sosHoldProgress / 100) * circumference;
@@ -88,9 +94,24 @@ export const SOSButton: React.FC = () => {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="absolute -top-16 bg-warning/20 text-warning px-4 py-2 rounded-full text-sm font-medium"
+            className="absolute -top-20 bg-warning/20 text-warning px-4 py-2 rounded-full text-sm font-medium"
           >
-            Tap {3 - rapidTapCount} more times for instant SOS
+            {t('tapMore') || `Tap ${3 - rapidTapCount} more times for instant SOS`}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Loading Location Indicator */}
+      <AnimatePresence>
+        {isLoadingLocation && sosHoldProgress > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="absolute -top-20 flex items-center gap-2 bg-secondary/20 text-secondary px-4 py-2 rounded-full text-sm font-medium"
+          >
+            <MapPin className="w-4 h-4" />
+            {t('gettingLocation') || 'Getting GPS location...'}
           </motion.div>
         )}
       </AnimatePresence>
@@ -104,7 +125,7 @@ export const SOSButton: React.FC = () => {
         onTouchEnd={endHold}
         disabled={isEmergencyActive}
         className={`
-          relative w-[200px] h-[200px] rounded-full
+          relative w-[260px] h-[260px] rounded-full
           flex items-center justify-center
           no-select touch-none
           ${isEmergencyActive ? 'cursor-not-allowed' : 'cursor-pointer'}
@@ -151,21 +172,32 @@ export const SOSButton: React.FC = () => {
 
         {/* Inner Button */}
         <div className={`
-          relative w-[160px] h-[160px] rounded-full
+          relative w-[200px] h-[200px] rounded-full
           bg-gradient-to-br from-primary to-emergency-glow
           flex flex-col items-center justify-center
           shadow-emergency
           ${isEmergencyActive ? 'sos-active' : ''}
         `}>
-          <span className="text-4xl font-bold text-primary-foreground tracking-wider">
-            {t('sos')}
-          </span>
-          <span className="text-xs text-primary-foreground/80 mt-1">
-            {sosHoldProgress > 0 
-              ? `${Math.round(sosHoldProgress)}%`
-              : t('holdToActivate')
-            }
-          </span>
+          {isLoadingLocation && sosHoldProgress > 50 ? (
+            <>
+              <Loader2 className="w-16 h-16 text-primary-foreground animate-spin" />
+              <span className="text-sm text-primary-foreground/80 mt-2">
+                {t('gettingLocation') || 'Locating...'}
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="text-5xl font-bold text-primary-foreground tracking-wider">
+                {t('sos')}
+              </span>
+              <span className="text-sm text-primary-foreground/80 mt-2">
+                {sosHoldProgress > 0 
+                  ? `${Math.round(sosHoldProgress)}%`
+                  : t('holdToActivate')
+                }
+              </span>
+            </>
+          )}
         </div>
       </motion.button>
 
@@ -173,11 +205,11 @@ export const SOSButton: React.FC = () => {
       <motion.p
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        className="mt-6 text-sm text-muted-foreground text-center max-w-[250px]"
+        className="mt-8 text-sm text-muted-foreground text-center max-w-[280px]"
       >
         {isEmergencyActive 
           ? t('emergencyActive')
-          : "Hold for 3 seconds or tap 3 times rapidly"
+          : t('sosInstructions') || "Hold for 3 seconds or tap 3 times rapidly"
         }
       </motion.p>
     </div>
