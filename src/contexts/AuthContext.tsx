@@ -6,15 +6,22 @@ import {
   signOut,
   onAuthStateChanged,
   sendPasswordResetEmail,
-  updateProfile
+  updateProfile,
+  GoogleAuthProvider,
+  signInWithPopup,
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+  ConfirmationResult
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 
 export interface UserProfile {
   uid: string;
-  email: string;
+  email: string | null;
+  phone: string | null;
   displayName: string;
+  loginMethod: 'email' | 'phone' | 'google';
   lat?: number;
   lng?: number;
   lastUpdated?: any;
@@ -28,6 +35,9 @@ interface AuthContextType {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, name: string) => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
+  sendOTP: (phoneNumber: string, recaptchaVerifier: RecaptchaVerifier) => Promise<ConfirmationResult>;
+  verifyOTP: (confirmationResult: ConfirmationResult, otp: string, name?: string) => Promise<void>;
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   updateUserProfile: (data: Partial<UserProfile>) => Promise<void>;
@@ -36,10 +46,47 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const googleProvider = new GoogleAuthProvider();
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Helper to create/update user profile in Firestore
+  const createOrUpdateUserProfile = async (
+    firebaseUser: User, 
+    loginMethod: 'email' | 'phone' | 'google',
+    displayName?: string
+  ) => {
+    const userRef = doc(db, 'users', firebaseUser.uid);
+    const userDoc = await getDoc(userRef);
+    
+    if (userDoc.exists()) {
+      // Update existing user
+      await setDoc(userRef, {
+        lastLogin: serverTimestamp(),
+        loginMethod,
+      }, { merge: true });
+      
+      const existingData = userDoc.data() as UserProfile;
+      setUserProfile({ ...existingData, loginMethod });
+    } else {
+      // Create new user profile
+      const profile: UserProfile = {
+        uid: firebaseUser.uid,
+        email: firebaseUser.email || null,
+        phone: firebaseUser.phoneNumber || null,
+        displayName: displayName || firebaseUser.displayName || 'User',
+        loginMethod,
+        createdAt: serverTimestamp(),
+        lastLogin: serverTimestamp(),
+      };
+      
+      await setDoc(userRef, profile);
+      setUserProfile(profile);
+    }
+  };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -70,26 +117,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signIn = async (email: string, password: string) => {
     const credential = await signInWithEmailAndPassword(auth, email, password);
-    await setDoc(doc(db, 'users', credential.user.uid), {
-      lastLogin: serverTimestamp()
-    }, { merge: true });
+    await createOrUpdateUserProfile(credential.user, 'email');
   };
 
   const signUp = async (email: string, password: string, name: string) => {
     const credential = await createUserWithEmailAndPassword(auth, email, password);
-    
     await updateProfile(credential.user, { displayName: name });
+    await createOrUpdateUserProfile(credential.user, 'email', name);
+  };
+
+  const signInWithGoogle = async () => {
+    const credential = await signInWithPopup(auth, googleProvider);
+    await createOrUpdateUserProfile(credential.user, 'google', credential.user.displayName || undefined);
+  };
+
+  const sendOTP = async (phoneNumber: string, recaptchaVerifier: RecaptchaVerifier): Promise<ConfirmationResult> => {
+    // Ensure phone number is in E.164 format for India
+    const formattedPhone = phoneNumber.startsWith('+91') ? phoneNumber : `+91${phoneNumber}`;
+    const confirmationResult = await signInWithPhoneNumber(auth, formattedPhone, recaptchaVerifier);
+    return confirmationResult;
+  };
+
+  const verifyOTP = async (confirmationResult: ConfirmationResult, otp: string, name?: string) => {
+    const credential = await confirmationResult.confirm(otp);
     
-    const profile: UserProfile = {
-      uid: credential.user.uid,
-      email: email,
-      displayName: name,
-      createdAt: serverTimestamp(),
-      lastLogin: serverTimestamp(),
-    };
+    // Update display name if provided
+    if (name && credential.user) {
+      await updateProfile(credential.user, { displayName: name });
+    }
     
-    await setDoc(doc(db, 'users', credential.user.uid), profile);
-    setUserProfile(profile);
+    await createOrUpdateUserProfile(credential.user, 'phone', name);
   };
 
   const logout = async () => {
@@ -128,6 +185,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       loading,
       signIn,
       signUp,
+      signInWithGoogle,
+      sendOTP,
+      verifyOTP,
       logout,
       resetPassword,
       updateUserProfile,
