@@ -72,6 +72,9 @@ export interface ChatMessage {
   senderPhone?: string;
   text: string;
   timestamp: any;
+  type?: 'text' | 'location' | 'system';
+  lat?: number;
+  lng?: number;
 }
 
 export interface Chat {
@@ -80,6 +83,19 @@ export interface Chat {
   participants: string[];
   activeStatus: boolean;
   createdAt: any;
+  expiresAt?: any;
+}
+
+export interface HelperWithStatus {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  distance: number;
+  isOnline: boolean;
+  lastActive?: any;
+  lat: number;
+  lng: number;
 }
 
 interface EmergencyContextType {
@@ -93,6 +109,8 @@ interface EmergencyContextType {
   chatMessages: ChatMessage[];
   locationError: string | null;
   isLoadingLocation: boolean;
+  chatHelpers: HelperWithStatus[];
+  locationPermissionGranted: boolean;
   
   // Actions
   triggerEmergency: () => Promise<void>;
@@ -101,7 +119,9 @@ interface EmergencyContextType {
   addContact: (contact: Omit<EmergencyContact, 'id'>) => Promise<void>;
   removeContact: (id: string) => Promise<void>;
   sendChatMessage: (text: string) => Promise<void>;
+  sendLocationMessage: () => Promise<void>;
   joinEmergencyChat: (emergency: EmergencyAlert) => Promise<void>;
+  checkLocationPermission: () => Promise<boolean>;
   
   // SOS State
   sosHoldProgress: number;
@@ -129,47 +149,64 @@ const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: numbe
   return R * c;
 };
 
-// Expanding radius search: 5km -> 10km -> 20km
-const SEARCH_RADII = [5, 10, 20];
+// Expanding radius search: start at 5km, increment by 5km until helper found
+const MAX_SEARCH_RADIUS = 50; // Maximum 50km
+const RADIUS_INCREMENT = 5; // Increment by 5km
 
-const findNearbyUsers = async (
+const findNearbyUsersWithExpansion = async (
   lat: number, 
   lng: number, 
   currentUserId: string
-): Promise<{ users: NearbyUser[], radius: number }> => {
+): Promise<{ users: HelperWithStatus[], radius: number }> => {
   const usersRef = collection(db, 'users');
   const usersSnapshot = await getDocs(usersRef);
   
-  for (const radius of SEARCH_RADII) {
-    const nearbyUsers: NearbyUser[] = [];
+  // Start at 5km and expand by 5km increments until we find at least one helper
+  for (let radius = 5; radius <= MAX_SEARCH_RADIUS; radius += RADIUS_INCREMENT) {
+    const nearbyUsers: HelperWithStatus[] = [];
     
-    usersSnapshot.forEach((doc) => {
-      const userData = doc.data();
-      if (doc.id === currentUserId) return;
+    usersSnapshot.forEach((docSnap) => {
+      const userData = docSnap.data();
+      if (docSnap.id === currentUserId) return;
       if (!userData.lat || !userData.lng) return;
       
       const distance = calculateDistance(lat, lng, userData.lat, userData.lng);
       if (distance <= radius) {
+        // Check if user is considered online (active within last 5 minutes)
+        const lastActive = userData.lastActive?.toDate?.() || userData.lastUpdated?.toDate?.();
+        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+        const isOnline = userData.isOnline === true || (lastActive && lastActive > fiveMinutesAgo);
+        
         nearbyUsers.push({
-          id: doc.id,
+          id: docSnap.id,
+          name: userData.displayName || userData.email?.split('@')[0] || 'Helper',
           email: userData.email || null,
           phone: userData.phone || null,
-          displayName: userData.displayName || 'Helper',
           lat: userData.lat,
           lng: userData.lng,
           distance,
-          lastUpdated: userData.lastUpdated,
+          isOnline,
+          lastActive: userData.lastActive || userData.lastUpdated,
         });
       }
     });
     
+    // Stop expanding as soon as we find at least one helper
     if (nearbyUsers.length > 0) {
+      // Sort: online first, then by distance
+      nearbyUsers.sort((a, b) => {
+        if (a.isOnline !== b.isOnline) return a.isOnline ? -1 : 1;
+        return a.distance - b.distance;
+      });
       return { users: nearbyUsers, radius };
     }
   }
   
-  return { users: [], radius: 20 };
+  return { users: [], radius: MAX_SEARCH_RADIUS };
 };
+
+// Chat expiry constant: 30 minutes
+const CHAT_EXPIRY_MS = 30 * 60 * 1000;
 
 export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, userProfile, updateUserLocation } = useAuth();
@@ -184,6 +221,8 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [isLoadingLocation, setIsLoadingLocation] = useState(false);
+  const [chatHelpers, setChatHelpers] = useState<HelperWithStatus[]>([]);
+  const [locationPermissionGranted, setLocationPermissionGranted] = useState(false);
   
   // SOS Button State
   const [sosHoldProgress, setSosHoldProgress] = useState(0);
@@ -191,6 +230,42 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [confirmationTimeout, setConfirmationTimeout] = useState(5);
   const [rapidTapCount, setRapidTapCount] = useState(0);
   const rapidTapTimeoutRef = useRef<NodeJS.Timeout>();
+  const chatExpiryTimeoutRef = useRef<NodeJS.Timeout>();
+
+  // Check location permission on mount
+  const checkLocationPermission = useCallback(async (): Promise<boolean> => {
+    if (!navigator.geolocation) {
+      setLocationPermissionGranted(false);
+      return false;
+    }
+    
+    try {
+      const result = await navigator.permissions.query({ name: 'geolocation' });
+      const granted = result.state === 'granted';
+      setLocationPermissionGranted(granted);
+      return granted;
+    } catch {
+      // Fallback: try to get position
+      return new Promise((resolve) => {
+        navigator.geolocation.getCurrentPosition(
+          () => {
+            setLocationPermissionGranted(true);
+            resolve(true);
+          },
+          () => {
+            setLocationPermissionGranted(false);
+            resolve(false);
+          },
+          { timeout: 5000 }
+        );
+      });
+    }
+  }, []);
+
+  // Check permission on mount
+  useEffect(() => {
+    checkLocationPermission();
+  }, [checkLocationPermission]);
 
   // Subscribe to contacts
   useEffect(() => {
@@ -514,8 +589,54 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         timestamp: serverTimestamp(),
       });
       
-      // 4. Find nearby users with expanding radius
-      const { users: nearbyUsers, radius: foundRadius } = await findNearbyUsers(lat, lng, user.uid);
+      // 4. Find nearby users with expanding radius (5km increments)
+      const { users: nearbyUsers, radius: foundRadius } = await findNearbyUsersWithExpansion(lat, lng, user.uid);
+      
+      // Store helpers for display
+      setChatHelpers(nearbyUsers);
+      
+      // 5. Add helpers to chat participants and send them alerts
+      if (nearbyUsers.length > 0) {
+        const helperIds = nearbyUsers.map(h => h.id);
+        await updateDoc(chatRef, {
+          participants: [user.uid, ...helperIds]
+        });
+      }
+      
+      // 6. Auto-send victim's location as first message
+      if (lat && lng) {
+        await addDoc(collection(db, 'messages'), {
+          chatId: chatRef.id,
+          senderId: user.uid,
+          senderName: userProfile.displayName || 'User',
+          text: `📍 My current location: https://maps.google.com/?q=${lat},${lng}`,
+          type: 'location',
+          lat,
+          lng,
+          timestamp: serverTimestamp(),
+        });
+      }
+      
+      // 7. Set up auto-expiry timer (30 minutes)
+      const expiryTime = new Date(Date.now() + CHAT_EXPIRY_MS);
+      await updateDoc(chatRef, { expiresAt: Timestamp.fromDate(expiryTime) });
+      
+      chatExpiryTimeoutRef.current = setTimeout(async () => {
+        // Auto-close chat after 30 minutes
+        try {
+          await updateDoc(chatRef, { activeStatus: false });
+          await addDoc(collection(db, 'messages'), {
+            chatId: chatRef.id,
+            senderId: 'system',
+            senderName: 'System',
+            text: '⏰ This emergency chat has automatically ended after 30 minutes.',
+            type: 'system',
+            timestamp: serverTimestamp(),
+          });
+        } catch (e) {
+          console.error('Failed to auto-expire chat:', e);
+        }
+      }, CHAT_EXPIRY_MS);
       
       setIsEmergencyActive(true);
       
@@ -624,6 +745,16 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const sendChatMessage = useCallback(async (text: string) => {
     if (!currentChat || !user || !userProfile) return;
     
+    // Check if chat is still active
+    if (!currentChat.activeStatus) {
+      toast({
+        title: "Chat Ended",
+        description: "This emergency chat has ended.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     try {
       await addDoc(collection(db, 'messages'), {
         chatId: currentChat.id,
@@ -632,6 +763,7 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         senderEmail: userProfile.email || undefined,
         senderPhone: userProfile.phone || undefined,
         text,
+        type: 'text',
         timestamp: serverTimestamp(),
       });
     } catch (error) {
@@ -643,6 +775,35 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       });
     }
   }, [currentChat, user, userProfile]);
+
+  const sendLocationMessage = useCallback(async () => {
+    if (!currentChat || !user || !userProfile || !location) return;
+    
+    try {
+      await addDoc(collection(db, 'messages'), {
+        chatId: currentChat.id,
+        senderId: user.uid,
+        senderName: userProfile.displayName || 'User',
+        text: `📍 Current location: https://maps.google.com/?q=${location.latitude},${location.longitude}`,
+        type: 'location',
+        lat: location.latitude,
+        lng: location.longitude,
+        timestamp: serverTimestamp(),
+      });
+      
+      toast({
+        title: "Location Shared",
+        description: "Your current location has been shared in the chat.",
+      });
+    } catch (error) {
+      console.error('Error sending location:', error);
+      toast({
+        title: "Error",
+        description: "Failed to share location",
+        variant: "destructive",
+      });
+    }
+  }, [currentChat, user, userProfile, location]);
 
   const joinEmergencyChat = useCallback(async (emergency: EmergencyAlert) => {
     if (!user || !emergency.chatId) return;
@@ -723,6 +884,8 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       chatMessages,
       locationError,
       isLoadingLocation,
+      chatHelpers,
+      locationPermissionGranted,
       
       triggerEmergency,
       resolveEmergency,
@@ -730,7 +893,9 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       addContact,
       removeContact,
       sendChatMessage,
+      sendLocationMessage,
       joinEmergencyChat,
+      checkLocationPermission,
       
       sosHoldProgress,
       setSosHoldProgress,

@@ -21,10 +21,13 @@ export interface UserProfile {
   email: string | null;
   phone: string | null;
   displayName: string;
+  name?: string;
   loginMethod: 'email' | 'phone' | 'google';
   lat?: number;
   lng?: number;
   lastUpdated?: any;
+  lastActive?: any;
+  isOnline?: boolean;
   createdAt: any;
   lastLogin?: any;
 }
@@ -72,13 +75,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const existingData = userDoc.data() as UserProfile;
       setUserProfile({ ...existingData, loginMethod });
     } else {
-      // Create new user profile
+      // Create new user profile with name field
+      const name = displayName || firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User';
       const profile: UserProfile = {
         uid: firebaseUser.uid,
         email: firebaseUser.email || null,
         phone: firebaseUser.phoneNumber || null,
-        displayName: displayName || firebaseUser.displayName || 'User',
+        displayName: name,
+        name: name,
         loginMethod,
+        isOnline: true,
+        lastActive: serverTimestamp(),
         createdAt: serverTimestamp(),
         lastLogin: serverTimestamp(),
       };

@@ -7,11 +7,15 @@ import { BottomNav } from '@/components/BottomNav';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useNavigate } from 'react-router-dom';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 
 const HelpersPage: React.FC = () => {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const { nearbyAlerts, joinEmergencyChat, location } = useEmergency();
+  
+  // Track online status
+  useOnlineStatus();
 
   return (
     <div className="min-h-screen bg-background pb-20">
