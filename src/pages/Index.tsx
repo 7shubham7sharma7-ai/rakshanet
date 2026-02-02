@@ -1,7 +1,7 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Shield, History, Bell } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { SOSButton } from '@/components/SOSButton';
 import { ConfirmationPopup } from '@/components/ConfirmationPopup';
 import { EmergencyActiveScreen } from '@/components/EmergencyActiveScreen';
@@ -10,25 +10,81 @@ import { RiskIndicator } from '@/components/RiskIndicator';
 import { LanguageSelector } from '@/components/LanguageSelector';
 import { BottomNav } from '@/components/BottomNav';
 import { LocationMap } from '@/components/LocationMap';
+import { LocationPermissionScreen } from '@/components/LocationPermissionScreen';
 import { useLanguage } from '@/lib/i18n';
 import { useEmergency } from '@/contexts/EmergencyContext';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { Button } from '@/components/ui/button';
 
 const Index = () => {
   const { t } = useLanguage();
-  const { updateLocation, location, contacts, nearbyAlerts } = useEmergency();
+  const navigate = useNavigate();
+  const { 
+    updateLocation, 
+    location, 
+    contacts, 
+    nearbyAlerts, 
+    locationPermissionGranted,
+    checkLocationPermission,
+    locationError,
+    isLoadingLocation,
+    isEmergencyActive,
+    currentChat
+  } = useEmergency();
+  
+  // Initialize online status tracking
+  useOnlineStatus();
+  
+  const [showPermissionScreen, setShowPermissionScreen] = useState(false);
 
   useEffect(() => {
-    // Request location on mount and start tracking
-    updateLocation().catch(console.error);
-    
-    // Set up periodic location updates
-    const interval = setInterval(() => {
+    // Check permission on mount
+    const checkPermission = async () => {
+      const granted = await checkLocationPermission();
+      if (!granted) {
+        setShowPermissionScreen(true);
+      }
+    };
+    checkPermission();
+  }, [checkLocationPermission]);
+
+  useEffect(() => {
+    if (locationPermissionGranted) {
+      // Request location on mount and start tracking
       updateLocation().catch(console.error);
-    }, 30000); // Update every 30 seconds
-    
-    return () => clearInterval(interval);
-  }, [updateLocation]);
+      
+      // Set up periodic location updates
+      const interval = setInterval(() => {
+        updateLocation().catch(console.error);
+      }, 30000); // Update every 30 seconds
+      
+      return () => clearInterval(interval);
+    }
+  }, [updateLocation, locationPermissionGranted]);
+
+  // Auto-navigate to chat when emergency is active
+  useEffect(() => {
+    if (isEmergencyActive && currentChat) {
+      navigate('/chat');
+    }
+  }, [isEmergencyActive, currentChat, navigate]);
+
+  const handlePermissionGranted = async () => {
+    setShowPermissionScreen(false);
+    await checkLocationPermission();
+    await updateLocation();
+  };
+
+  // Show permission screen if not granted
+  if (showPermissionScreen && !locationPermissionGranted) {
+    return (
+      <LocationPermissionScreen
+        onPermissionGranted={handlePermissionGranted}
+        error={locationError}
+        isRequesting={isLoadingLocation}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background pb-20">

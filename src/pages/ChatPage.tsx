@@ -1,24 +1,30 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, MapPin, AlertTriangle, Users, X } from 'lucide-react';
+import { Send, MapPin, AlertTriangle, Users, X, Navigation } from 'lucide-react';
 import { useEmergency, EmergencyAlert } from '@/contexts/EmergencyContext';
 import { BottomNav } from '@/components/BottomNav';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useAuth } from '@/contexts/AuthContext';
+import { HelpersList, HelperInfo } from '@/components/HelpersList';
+import { useLanguage } from '@/lib/i18n';
 
 const ChatPage: React.FC = () => {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const { 
     isEmergencyActive, 
     currentEmergency, 
     currentChat, 
     chatMessages, 
     sendChatMessage,
+    sendLocationMessage,
     nearbyAlerts,
     joinEmergencyChat,
-    resolveEmergency
+    resolveEmergency,
+    chatHelpers,
+    location
   } = useEmergency();
   
   const [inputValue, setInputValue] = useState('');
@@ -50,6 +56,15 @@ const ChatPage: React.FC = () => {
 
   const isUserMessage = (senderId: string) => senderId === user?.uid;
   const isSystemMessage = (senderId: string) => senderId === 'system';
+
+  // Transform chatHelpers to HelperInfo format
+  const helpersInfo: HelperInfo[] = chatHelpers.map(h => ({
+    id: h.id,
+    name: h.name,
+    distance: h.distance,
+    isOnline: h.isOnline,
+    lastActive: h.lastActive,
+  }));
 
   return (
     <div className="min-h-screen bg-background flex flex-col pb-20">
@@ -148,7 +163,7 @@ const ChatPage: React.FC = () => {
           {/* Emergency Info Banner */}
           {currentEmergency && (
             <div className="bg-destructive/10 border-b border-destructive/30 px-4 py-3">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <MapPin className="w-4 h-4 text-destructive" />
                   <a 
@@ -157,7 +172,7 @@ const ChatPage: React.FC = () => {
                     rel="noopener noreferrer"
                     className="text-sm text-destructive hover:underline"
                   >
-                    View location on map
+                    {t('viewOnMap') || 'View location on map'}
                   </a>
                 </div>
                 {isEmergencyActive && (
@@ -168,10 +183,17 @@ const ChatPage: React.FC = () => {
                     className="text-xs"
                   >
                     <X className="w-3 h-3 mr-1" />
-                    End Emergency
+                    {t('endEmergency') || 'End Emergency'}
                   </Button>
                 )}
               </div>
+              
+              {/* Helpers List */}
+              {helpersInfo.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-destructive/20">
+                  <HelpersList helpers={helpersInfo} variant="compact" />
+                </div>
+              )}
             </div>
           )}
 
@@ -229,22 +251,42 @@ const ChatPage: React.FC = () => {
           {/* Input */}
           <div className="sticky bottom-16 bg-background border-t border-border p-4">
             <div className="flex gap-2">
+              {/* Share Location Button */}
+              {location && (
+                <Button
+                  onClick={sendLocationMessage}
+                  variant="outline"
+                  size="icon"
+                  title={t('shareLocation') || 'Share location'}
+                >
+                  <Navigation className="w-5 h-5" />
+                </Button>
+              )}
+              
               <Input
-                placeholder="Type a message..."
+                placeholder={t('typeMessage') || 'Type a message...'}
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
                 className="flex-1"
+                disabled={!currentChat.activeStatus}
               />
               
               <Button
                 onClick={handleSend}
-                disabled={!inputValue.trim()}
+                disabled={!inputValue.trim() || !currentChat.activeStatus}
                 size="icon"
               >
                 <Send className="w-5 h-5" />
               </Button>
             </div>
+            
+            {/* Chat expired message */}
+            {!currentChat.activeStatus && (
+              <p className="text-xs text-center text-muted-foreground mt-2">
+                {t('chatEnded') || 'This emergency chat has ended.'}
+              </p>
+            )}
           </div>
         </>
       )}
