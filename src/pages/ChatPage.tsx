@@ -9,10 +9,12 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useAuth } from '@/contexts/AuthContext';
 import { HelpersList, HelperInfo } from '@/components/HelpersList';
 import { useLanguage } from '@/lib/i18n';
+import { useSearchParams } from 'react-router-dom';
 
 const ChatPage: React.FC = () => {
   const { user } = useAuth();
   const { t } = useLanguage();
+  const [searchParams] = useSearchParams();
   const { 
     isEmergencyActive, 
     currentEmergency, 
@@ -30,6 +32,20 @@ const ChatPage: React.FC = () => {
   const [inputValue, setInputValue] = useState('');
   const [selectedAlert, setSelectedAlert] = useState<EmergencyAlert | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-join chat from notification URL params
+  useEffect(() => {
+    const chatIdFromUrl = searchParams.get('chatId');
+    const emergencyIdFromUrl = searchParams.get('emergencyId');
+    
+    if (chatIdFromUrl && emergencyIdFromUrl && !currentChat && nearbyAlerts.length > 0) {
+      // Find the matching alert and join it
+      const matchingAlert = nearbyAlerts.find(a => a.id === emergencyIdFromUrl || a.chatId === chatIdFromUrl);
+      if (matchingAlert) {
+        joinEmergencyChat(matchingAlert);
+      }
+    }
+  }, [searchParams, currentChat, nearbyAlerts, joinEmergencyChat]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {

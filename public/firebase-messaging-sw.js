@@ -59,8 +59,13 @@ self.addEventListener('notificationclick', (event) => {
     return;
   }
 
-  // Open the chat page when notification is clicked
+  // Get chatId from notification data for proper routing
+  const chatId = event.notification.data?.chatId;
+  const emergencyId = event.notification.data?.emergencyId;
   const urlToOpen = event.notification.data?.url || '/chat';
+  
+  // Build URL with chatId if available for proper routing
+  const finalUrl = chatId ? `${urlToOpen}?chatId=${chatId}&emergencyId=${emergencyId}` : urlToOpen;
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
@@ -68,13 +73,13 @@ self.addEventListener('notificationclick', (event) => {
       for (const client of clientList) {
         if (client.url.includes(self.location.origin) && 'focus' in client) {
           client.focus();
-          client.navigate(urlToOpen);
+          client.navigate(finalUrl);
           return;
         }
       }
       // Open new window if none exists
       if (clients.openWindow) {
-        return clients.openWindow(urlToOpen);
+        return clients.openWindow(finalUrl);
       }
     })
   );

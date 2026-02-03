@@ -13,7 +13,8 @@ import {
   setDoc,
   serverTimestamp,
   getDocs,
-  getDoc
+  getDoc,
+  arrayUnion
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -402,7 +403,7 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             variant: "destructive",
           });
           
-          // Show native browser notification if permitted
+          // Show native browser notification if permitted with chatId for navigation
           if ('Notification' in window && Notification.permission === 'granted') {
             const notification = new Notification('🚨 Emergency Near You!', {
               body: `${alertData.victimName} needs help! Tap to respond.`,
@@ -410,11 +411,27 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
               badge: '/favicon.ico',
               tag: `emergency-${alertData.emergencyId}`,
               requireInteraction: true,
+              data: {
+                chatId: alertData.chatId,
+                emergencyId: alertData.emergencyId,
+                url: '/chat'
+              }
             });
             
-            notification.onclick = () => {
+            notification.onclick = async () => {
               window.focus();
-              // Navigate to chat would happen via the nearbyAlerts list
+              // Navigate to chat page with the emergency chat
+              if (alertData.chatId) {
+                // Join the chat as participant
+                const chatRef = doc(db, 'chats', alertData.chatId);
+                const chatDoc = await getDoc(chatRef);
+                if (chatDoc.exists()) {
+                  await updateDoc(chatRef, {
+                    participants: arrayUnion(user.uid)
+                  });
+                }
+                window.location.href = '/chat';
+              }
             };
           }
           
@@ -650,8 +667,9 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       // 5. Add helpers to chat participants and send them alerts
       if (nearbyUsers.length > 0) {
         const helperIds = nearbyUsers.map(h => h.id);
+        // Use arrayUnion to avoid overwriting existing participants
         await updateDoc(chatRef, {
-          participants: [user.uid, ...helperIds]
+          participants: arrayUnion(user.uid, ...helperIds)
         });
         
         // 5b. Create in-app alerts for nearby helpers (stored in Firestore for real-time updates)
@@ -888,10 +906,10 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (chatDoc.exists()) {
         const chatData = chatDoc.data() as Chat;
         
-        // Add user to participants if not already
-        if (!chatData.participants.includes(user.uid)) {
+        // Add user to participants using arrayUnion to avoid overwrites
+        if (!chatData.participants?.includes(user.uid)) {
           await updateDoc(chatRef, {
-            participants: [...chatData.participants, user.uid]
+            participants: arrayUnion(user.uid)
           });
           
           // Add join message
