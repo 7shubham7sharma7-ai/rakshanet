@@ -122,6 +122,15 @@ export const translations: Record<LanguageCode, Record<string, string>> = {
     // Chat
     viewOnMap: 'View location on map',
     chatEnded: 'This emergency chat has ended.',
+    // Notifications
+    enableNotifications: 'Enable Emergency Notifications',
+    notificationPermissionExplain: 'Receive instant alerts when someone nearby needs help. Works even when the app is closed.',
+    allow: 'Allow',
+    later: 'Later',
+    notificationsBlocked: 'Notifications Blocked',
+    enableNotificationsInSettings: 'To receive emergency alerts, please enable notifications in your browser settings.',
+    emergencyAlert: 'Emergency Alert',
+    someoneNeedsHelp: 'Someone nearby needs your help!',
   },
   hi: {
     appName: 'रक्षासेतु',
