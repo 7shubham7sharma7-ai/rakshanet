@@ -379,6 +379,58 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return unsubscribe;
   }, [user, location]);
 
+  // Subscribe to helper alerts (in-app notifications for nearby emergencies)
+  useEffect(() => {
+    if (!user) return;
+
+    const alertsRef = collection(db, 'helperAlerts');
+    const q = query(
+      alertsRef,
+      where('helperId', '==', user.uid),
+      where('status', '==', 'pending')
+    );
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      snapshot.docChanges().forEach(async (change) => {
+        if (change.type === 'added') {
+          const alertData = change.doc.data();
+          
+          // Show in-app toast notification
+          toast({
+            title: "🚨 Emergency Alert!",
+            description: `${alertData.victimName} needs help! ${alertData.distance?.toFixed(1) || '?'} km away`,
+            variant: "destructive",
+          });
+          
+          // Show native browser notification if permitted
+          if ('Notification' in window && Notification.permission === 'granted') {
+            const notification = new Notification('🚨 Emergency Near You!', {
+              body: `${alertData.victimName} needs help! Tap to respond.`,
+              icon: '/favicon.ico',
+              badge: '/favicon.ico',
+              tag: `emergency-${alertData.emergencyId}`,
+              requireInteraction: true,
+            });
+            
+            notification.onclick = () => {
+              window.focus();
+              // Navigate to chat would happen via the nearbyAlerts list
+            };
+          }
+          
+          // Mark alert as delivered
+          try {
+            await updateDoc(change.doc.ref, { status: 'delivered' });
+          } catch (e) {
+            console.error('Failed to update alert status:', e);
+          }
+        }
+      });
+    });
+
+    return unsubscribe;
+  }, [user]);
+
   // Subscribe to current chat messages
   useEffect(() => {
     if (!currentChat) {
@@ -601,6 +653,27 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         await updateDoc(chatRef, {
           participants: [user.uid, ...helperIds]
         });
+        
+        // 5b. Create in-app alerts for nearby helpers (stored in Firestore for real-time updates)
+        // These will trigger the nearbyAlerts listener in each helper's app
+        for (const helper of nearbyUsers) {
+          try {
+            await addDoc(collection(db, 'helperAlerts'), {
+              helperId: helper.id,
+              emergencyId: emergencyRef.id,
+              chatId: chatRef.id,
+              victimName: userProfile.displayName || 'User',
+              victimId: user.uid,
+              lat,
+              lng,
+              distance: helper.distance,
+              status: 'pending',
+              createdAt: serverTimestamp(),
+            });
+          } catch (e) {
+            console.error('Failed to create helper alert:', e);
+          }
+        }
       }
       
       // 6. Auto-send victim's location as first message

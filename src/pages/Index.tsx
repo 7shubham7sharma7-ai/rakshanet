@@ -11,9 +11,11 @@ import { LanguageSelector } from '@/components/LanguageSelector';
 import { BottomNav } from '@/components/BottomNav';
 import { LocationMap } from '@/components/LocationMap';
 import { LocationPermissionScreen } from '@/components/LocationPermissionScreen';
+import { NotificationPermission } from '@/components/NotificationPermission';
 import { useLanguage } from '@/lib/i18n';
 import { useEmergency } from '@/contexts/EmergencyContext';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { Button } from '@/components/ui/button';
 
 const Index = () => {
@@ -35,7 +37,11 @@ const Index = () => {
   // Initialize online status tracking
   useOnlineStatus();
   
+  // Initialize push notifications
+  const { notificationPermission, requestPermission: requestNotificationPermission } = usePushNotifications();
+  
   const [showPermissionScreen, setShowPermissionScreen] = useState(false);
+  const [showNotificationPrompt, setShowNotificationPrompt] = useState(true);
 
   useEffect(() => {
     // Check permission on mount
@@ -120,6 +126,20 @@ const Index = () => {
           </div>
         </div>
       </header>
+
+      {/* Notification Permission Prompt */}
+      {showNotificationPrompt && notificationPermission === 'default' && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="px-4 pb-4"
+        >
+          <NotificationPermission 
+            variant="inline" 
+            onComplete={() => setShowNotificationPrompt(false)} 
+          />
+        </motion.div>
+      )}
 
       {/* Risk Indicator */}
       <div className="px-4 py-4">
