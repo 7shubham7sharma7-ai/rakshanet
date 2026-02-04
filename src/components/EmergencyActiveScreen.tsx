@@ -164,13 +164,24 @@ export const EmergencyActiveScreen: React.FC = () => {
             </motion.div>
           </div>
 
-          {/* End Emergency Button */}
-          <div className="fixed bottom-0 inset-x-0 p-4 bg-gradient-to-t from-background via-background to-transparent">
+          {/* Action Buttons */}
+          <div className="fixed bottom-0 inset-x-0 p-4 bg-gradient-to-t from-background via-background to-transparent space-y-3">
+            {/* Primary: Help Received */}
+            <Button
+              onClick={resolveEmergency}
+              size="lg"
+              className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
+            >
+              <CheckCircle className="w-5 h-5 mr-2" />
+              {t('helpReceived') || 'Help Received'}
+            </Button>
+            
+            {/* Secondary: End Emergency */}
             <Button
               onClick={resolveEmergency}
               variant="outline"
               size="lg"
-              className="w-full border-accent text-accent hover:bg-accent hover:text-accent-foreground"
+              className="w-full border-muted-foreground/30 text-muted-foreground"
             >
               <X className="w-4 h-4 mr-2" />
               {t('endEmergency')}
