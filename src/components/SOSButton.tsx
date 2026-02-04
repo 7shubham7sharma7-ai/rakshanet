@@ -26,7 +26,8 @@ export const SOSButton: React.FC = () => {
   const PROGRESS_INTERVAL = 50; // Update every 50ms
 
   const startHold = useCallback(async () => {
-    if (isEmergencyActive || isLoadingLocation) return;
+    // Allow SOS even if emergency is active (creates new emergency)
+    if (isLoadingLocation) return;
     
     // Start getting location immediately when user starts holding
     updateLocation().catch(console.error);
@@ -123,12 +124,12 @@ export const SOSButton: React.FC = () => {
         onMouseLeave={endHold}
         onTouchStart={startHold}
         onTouchEnd={endHold}
-        disabled={isEmergencyActive}
+        disabled={isLoadingLocation}
         className={`
           relative w-[260px] h-[260px] rounded-full
           flex items-center justify-center
           no-select touch-none
-          ${isEmergencyActive ? 'cursor-not-allowed' : 'cursor-pointer'}
+          ${isLoadingLocation ? 'cursor-not-allowed' : 'cursor-pointer'}
           ${sosHoldProgress > 0 ? 'scale-95' : 'scale-100'}
           transition-transform duration-100
         `}

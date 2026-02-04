@@ -206,8 +206,8 @@ const findNearbyUsersWithExpansion = async (
   return { users: [], radius: MAX_SEARCH_RADIUS };
 };
 
-// Chat expiry constant: 30 minutes
-const CHAT_EXPIRY_MS = 30 * 60 * 1000;
+// Chat expiry constant: 1 hour
+const CHAT_EXPIRY_MS = 60 * 60 * 1000;
 
 export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, userProfile, updateUserLocation } = useAuth();
@@ -713,14 +713,15 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       await updateDoc(chatRef, { expiresAt: Timestamp.fromDate(expiryTime) });
       
       chatExpiryTimeoutRef.current = setTimeout(async () => {
-        // Auto-close chat after 30 minutes
+        // Auto-close chat after 1 hour
         try {
           await updateDoc(chatRef, { activeStatus: false });
+          await updateDoc(emergencyRef, { status: 'expired' });
           await addDoc(collection(db, 'messages'), {
             chatId: chatRef.id,
             senderId: 'system',
             senderName: 'System',
-            text: '⏰ This emergency chat has automatically ended after 30 minutes.',
+            text: '⏰ This emergency chat has automatically ended after 1 hour.',
             type: 'system',
             timestamp: serverTimestamp(),
           });
