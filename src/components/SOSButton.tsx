@@ -26,11 +26,13 @@ export const SOSButton: React.FC = () => {
   const PROGRESS_INTERVAL = 50; // Update every 50ms
 
   const startHold = useCallback(async () => {
-    // Allow SOS even if emergency is active (creates new emergency)
-    if (isLoadingLocation) return;
+    // NEVER block SOS - always allow triggering
+    // Even if location is loading, allow SOS to proceed
     
-    // Start getting location immediately when user starts holding
-    updateLocation().catch(console.error);
+    // Start getting location in background (don't block SOS)
+    updateLocation().catch((err) => {
+      console.warn('Location fetch failed, SOS will proceed without precise location:', err);
+    });
     
     isHoldingRef.current = true;
     progressRef.current = 0;
@@ -51,7 +53,7 @@ export const SOSButton: React.FC = () => {
         clearInterval(progressIntervalRef.current);
       }
     }, HOLD_DURATION);
-  }, [isEmergencyActive, isLoadingLocation, setSosHoldProgress, setShowConfirmation, updateLocation]);
+  }, [setSosHoldProgress, setShowConfirmation, updateLocation]);
 
   const endHold = useCallback(() => {
     isHoldingRef.current = false;
@@ -117,19 +119,17 @@ export const SOSButton: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* Main SOS Button */}
+      {/* Main SOS Button - NEVER disabled */}
       <motion.button
         onMouseDown={startHold}
         onMouseUp={endHold}
         onMouseLeave={endHold}
         onTouchStart={startHold}
         onTouchEnd={endHold}
-        disabled={isLoadingLocation}
         className={`
           relative w-[260px] h-[260px] rounded-full
           flex items-center justify-center
-          no-select touch-none
-          ${isLoadingLocation ? 'cursor-not-allowed' : 'cursor-pointer'}
+          no-select touch-none cursor-pointer
           ${sosHoldProgress > 0 ? 'scale-95' : 'scale-100'}
           transition-transform duration-100
         `}

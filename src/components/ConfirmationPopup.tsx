@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AlertTriangle, X } from 'lucide-react';
+import { AlertTriangle, X, Loader2 } from 'lucide-react';
 import { useEmergency } from '@/contexts/EmergencyContext';
 import { useLanguage } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,18 @@ export const ConfirmationPopup: React.FC = () => {
     cancelSOS,
   } = useEmergency();
   const { t } = useLanguage();
+  const [isTriggering, setIsTriggering] = useState(false);
+
+  const handleTrigger = async () => {
+    setIsTriggering(true);
+    try {
+      await triggerEmergency();
+    } catch (error) {
+      console.error('Emergency trigger failed:', error);
+    } finally {
+      setIsTriggering(false);
+    }
+  };
 
   return (
     <AnimatePresence>
@@ -65,12 +77,20 @@ export const ConfirmationPopup: React.FC = () => {
               {/* Buttons */}
               <div className="space-y-3">
                 <Button
-                  onClick={() => triggerEmergency()}
+                  onClick={handleTrigger}
                   variant="destructive"
                   size="lg"
                   className="w-full h-14 text-lg font-bold"
+                  disabled={isTriggering}
                 >
-                  {t('yesSendAlert')}
+                  {isTriggering ? (
+                    <>
+                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    t('yesSendAlert')
+                  )}
                 </Button>
                 
                 <Button

@@ -58,7 +58,7 @@ export interface EmergencyAlert {
   victimPhone: string | null;
   lat: number;
   lng: number;
-  status: 'active' | 'resolved';
+  status: 'waiting' | 'active' | 'closed';
   timestamp: any;
   chatId?: string;
   languagePreference?: string;
@@ -298,7 +298,7 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return unsubscribe;
   }, [user]);
 
-  // Subscribe to user's active emergency
+  // Subscribe to user's active emergency (waiting or active status)
   useEffect(() => {
     if (!user) return;
 
@@ -306,12 +306,17 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const q = query(
       emergenciesRef,
       where('victimId', '==', user.uid),
-      where('status', '==', 'active')
+      where('status', 'in', ['waiting', 'active'])
     );
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
       if (!snapshot.empty) {
-        const emergencyDoc = snapshot.docs[0];
+        // Get the most recent emergency
+        const emergencyDoc = snapshot.docs.sort((a, b) => {
+          const aTime = a.data().timestamp?.toMillis?.() || 0;
+          const bTime = b.data().timestamp?.toMillis?.() || 0;
+          return bTime - aTime;
+        })[0];
         const data = emergencyDoc.data();
         setCurrentEmergency({
           id: emergencyDoc.id,
@@ -346,7 +351,7 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const emergenciesRef = collection(db, 'emergencies');
     const q = query(
       emergenciesRef,
-      where('status', '==', 'active')
+      where('status', 'in', ['waiting', 'active'])
     );
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -614,7 +619,7 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const lng = currentLocation?.longitude || 0;
     
     try {
-      // 1. Create emergency document with all required fields
+      // 1. Create NEW emergency document every time (status: waiting initially)
       const emergencyData = {
         victimId: user.uid,
         victimName: userProfile.displayName || 'User',
@@ -622,13 +627,13 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         victimPhone: userProfile.phone || null,
         lat,
         lng,
-        status: 'active',
+        status: 'waiting' as const,
         timestamp: serverTimestamp(),
         languagePreference: language,
       };
       
       const emergencyRef = await addDoc(collection(db, 'emergencies'), emergencyData);
-      console.log('Emergency created:', emergencyRef.id);
+      console.log('New emergency created:', emergencyRef.id);
       
       // 2. Create chat for this emergency with activeStatus
       const chatData: Omit<Chat, 'id'> = {
@@ -694,7 +699,10 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }
       }
       
-      // 6. Auto-send victim's location as first message
+      // 6. Update emergency status to 'active' once helpers are notified
+      await updateDoc(emergencyRef, { status: 'active' });
+      
+      // 7. Auto-send victim's location as first message
       if (lat && lng) {
         await addDoc(collection(db, 'messages'), {
           chatId: chatRef.id,
@@ -708,15 +716,15 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         });
       }
       
-      // 7. Set up auto-expiry timer (30 minutes)
+      // 8. Set up auto-expiry timer (1 hour)
       const expiryTime = new Date(Date.now() + CHAT_EXPIRY_MS);
       await updateDoc(chatRef, { expiresAt: Timestamp.fromDate(expiryTime) });
       
       chatExpiryTimeoutRef.current = setTimeout(async () => {
-        // Auto-close chat after 1 hour
+        // Auto-close chat after 1 hour - set status to 'closed'
         try {
           await updateDoc(chatRef, { activeStatus: false });
-          await updateDoc(emergencyRef, { status: 'expired' });
+          await updateDoc(emergencyRef, { status: 'closed' });
           await addDoc(collection(db, 'messages'), {
             chatId: chatRef.id,
             senderId: 'system',
@@ -753,9 +761,9 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (!currentEmergency || !user) return;
     
     try {
-      // Update emergency status
+      // Update emergency status to 'closed'
       await updateDoc(doc(db, 'emergencies', currentEmergency.id), {
-        status: 'resolved',
+        status: 'closed',
         resolvedAt: serverTimestamp(),
       });
       
@@ -765,23 +773,30 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           activeStatus: false,
         });
         
-        // Add system message
+        // Add system message notifying all helpers
         await addDoc(collection(db, 'messages'), {
           chatId: currentChat.id,
           senderId: 'system',
           senderName: 'System',
-          text: '✅ Emergency has been resolved. Chat closed. Stay safe!',
+          text: '✅ Help has been received! Emergency resolved. Thank you to all helpers!',
+          type: 'system',
           timestamp: serverTimestamp(),
         });
+      }
+      
+      // Clear expiry timer
+      if (chatExpiryTimeoutRef.current) {
+        clearTimeout(chatExpiryTimeoutRef.current);
       }
       
       setIsEmergencyActive(false);
       setCurrentEmergency(null);
       setCurrentChat(null);
+      setChatHelpers([]);
       
       toast({
-        title: "Emergency Resolved",
-        description: "Stay safe! The emergency has been marked as resolved.",
+        title: "Help Received!",
+        description: "Emergency resolved. All helpers have been notified. Stay safe!",
       });
     } catch (error) {
       console.error('Error resolving emergency:', error);
