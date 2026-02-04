@@ -848,6 +848,23 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
     
     try {
+      // Ensure user is in participants before sending
+      const chatRef = doc(db, 'chats', currentChat.id);
+      const chatSnap = await getDoc(chatRef);
+      
+      if (chatSnap.exists()) {
+        const chatData = chatSnap.data();
+        const participants = chatData.participants || [];
+        
+        // Add user to participants if not already present
+        if (!participants.includes(user.uid)) {
+          await updateDoc(chatRef, {
+            participants: arrayUnion(user.uid),
+          });
+        }
+      }
+      
+      // Send the message
       await addDoc(collection(db, 'messages'), {
         chatId: currentChat.id,
         senderId: user.uid,
@@ -871,7 +888,33 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const sendLocationMessage = useCallback(async () => {
     if (!currentChat || !user || !userProfile || !location) return;
     
+    // Check if chat is still active
+    if (!currentChat.activeStatus) {
+      toast({
+        title: "Chat Ended",
+        description: "This emergency chat has ended.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     try {
+      // Ensure user is in participants before sending
+      const chatRef = doc(db, 'chats', currentChat.id);
+      const chatSnap = await getDoc(chatRef);
+      
+      if (chatSnap.exists()) {
+        const chatData = chatSnap.data();
+        const participants = chatData.participants || [];
+        
+        // Add user to participants if not already present
+        if (!participants.includes(user.uid)) {
+          await updateDoc(chatRef, {
+            participants: arrayUnion(user.uid),
+          });
+        }
+      }
+      
       await addDoc(collection(db, 'messages'), {
         chatId: currentChat.id,
         senderId: user.uid,
