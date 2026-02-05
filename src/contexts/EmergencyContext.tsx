@@ -946,17 +946,25 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }
       }
       
-      // Send the message
-      await addDoc(collection(db, 'messages'), {
+      // Send the message - use null instead of undefined for optional fields
+      const messageData: Record<string, any> = {
         chatId: currentChat.id,
         senderId: user.uid,
         senderName: userProfile.displayName || 'User',
-        senderEmail: userProfile.email || undefined,
-        senderPhone: userProfile.phone || undefined,
         text,
         type: 'text',
         timestamp: serverTimestamp(),
-      });
+      };
+      
+      // Only add optional fields if they have values (Firestore rejects undefined)
+      if (userProfile.email) {
+        messageData.senderEmail = userProfile.email;
+      }
+      if (userProfile.phone) {
+        messageData.senderPhone = userProfile.phone;
+      }
+      
+      await addDoc(collection(db, 'messages'), messageData);
     } catch (error) {
       console.error('Error sending message:', error);
       toast({
