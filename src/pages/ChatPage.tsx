@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, MapPin, AlertTriangle, Users, X, Navigation } from 'lucide-react';
+import { Send, MapPin, AlertTriangle, Users, X, Navigation, Clock, CheckCircle } from 'lucide-react';
 import { useEmergency, EmergencyAlert } from '@/contexts/EmergencyContext';
 import { BottomNav } from '@/components/BottomNav';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { HelpersList, HelperInfo } from '@/components/HelpersList';
 import { useLanguage } from '@/lib/i18n';
 import { useSearchParams } from 'react-router-dom';
+import { useChatStatus } from '@/hooks/useChatStatus';
 
 const ChatPage: React.FC = () => {
   const { user } = useAuth();
@@ -32,6 +33,9 @@ const ChatPage: React.FC = () => {
   const [inputValue, setInputValue] = useState('');
   const [selectedAlert, setSelectedAlert] = useState<EmergencyAlert | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  // Get computed chat status (active, expired, resolved, read-only)
+  const chatStatus = useChatStatus(currentChat);
 
   // Auto-join chat from notification URL params
   useEffect(() => {
@@ -53,7 +57,7 @@ const ChatPage: React.FC = () => {
   }, [chatMessages]);
 
   const handleSend = async () => {
-    if (!inputValue.trim()) return;
+    if (!inputValue.trim() || chatStatus.isReadOnly) return;
     await sendChatMessage(inputValue.trim());
     setInputValue('');
   };
@@ -264,44 +268,60 @@ const ChatPage: React.FC = () => {
             <div ref={messagesEndRef} />
           </div>
 
+          {/* Chat Status Banner for expired/resolved */}
+          {chatStatus.statusMessage && (
+            <div className="bg-muted border-b border-border px-4 py-3 flex items-center justify-center gap-2">
+              {chatStatus.isExpired ? (
+                <Clock className="w-4 h-4 text-muted-foreground" />
+              ) : (
+                <CheckCircle className="w-4 h-4 text-accent" />
+              )}
+              <span className="text-sm text-muted-foreground">
+                {chatStatus.statusMessage}
+              </span>
+            </div>
+          )}
+
           {/* Input */}
           <div className="sticky bottom-16 bg-background border-t border-border p-4">
-            <div className="flex gap-2">
-              {/* Share Location Button */}
-              {location && (
+            {!chatStatus.isReadOnly ? (
+              <div className="flex gap-2">
+                {/* Share Location Button */}
+                {location && (
+                  <Button
+                    onClick={sendLocationMessage}
+                    variant="outline"
+                    size="icon"
+                    title={t('shareLocation') || 'Share location'}
+                  >
+                    <Navigation className="w-5 h-5" />
+                  </Button>
+                )}
+                
+                <Input
+                  placeholder={t('typeMessage') || 'Type a message...'}
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  className="flex-1"
+                />
+                
                 <Button
-                  onClick={sendLocationMessage}
-                  variant="outline"
+                  onClick={handleSend}
+                  disabled={!inputValue.trim()}
                   size="icon"
-                  title={t('shareLocation') || 'Share location'}
                 >
-                  <Navigation className="w-5 h-5" />
+                  <Send className="w-5 h-5" />
                 </Button>
-              )}
-              
-              <Input
-                placeholder={t('typeMessage') || 'Type a message...'}
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={handleKeyDown}
-                className="flex-1"
-                disabled={!currentChat.activeStatus}
-              />
-              
-              <Button
-                onClick={handleSend}
-                disabled={!inputValue.trim() || !currentChat.activeStatus}
-                size="icon"
-              >
-                <Send className="w-5 h-5" />
-              </Button>
-            </div>
-            
-            {/* Chat expired message */}
-            {!currentChat.activeStatus && (
-              <p className="text-xs text-center text-muted-foreground mt-2">
-                {t('chatEnded') || 'This emergency chat has ended.'}
-              </p>
+              </div>
+            ) : (
+              <div className="text-center py-2">
+                <p className="text-sm text-muted-foreground">
+                  {chatStatus.isExpired 
+                    ? t('chatExpired') || '⏰ This chat has expired. No new messages can be sent.'
+                    : t('chatEnded') || '✅ This emergency has been resolved.'}
+                </p>
+              </div>
             )}
           </div>
         </>

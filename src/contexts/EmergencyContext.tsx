@@ -150,8 +150,8 @@ const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: numbe
   return R * c;
 };
 
-// Expanding radius search: start at 5km, increment by 5km until helper found
-const MAX_SEARCH_RADIUS = 50; // Maximum 50km
+// Expanding radius search: start at 5km, increment by 5km until helper found (max 25km)
+const MAX_SEARCH_RADIUS = 25; // Maximum 25km as per requirements
 const RADIUS_INCREMENT = 5; // Increment by 5km
 
 const findNearbyUsersWithExpansion = async (
@@ -598,6 +598,24 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       return;
     }
     
+    // Check if user already has an active emergency (ONLY ONE per user)
+    const existingEmergencyQuery = query(
+      collection(db, 'emergencies'),
+      where('victimId', '==', user.uid),
+      where('status', 'in', ['waiting', 'active'])
+    );
+    const existingSnapshot = await getDocs(existingEmergencyQuery);
+    
+    if (!existingSnapshot.empty) {
+      toast({
+        title: "Emergency Already Active",
+        description: "You already have an active emergency. Please resolve it first.",
+        variant: "destructive",
+      });
+      setShowConfirmation(false);
+      return;
+    }
+    
     setShowConfirmation(false);
     setConfirmationTimeout(5);
     
@@ -663,7 +681,7 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         timestamp: serverTimestamp(),
       });
       
-      // 4. Find nearby users with expanding radius (5km increments)
+      // 4. Find nearby users with expanding radius (5km increments, max 25km)
       const { users: nearbyUsers, radius: foundRadius } = await findNearbyUsersWithExpansion(lat, lng, user.uid);
       
       // Store helpers for display
@@ -677,12 +695,33 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           participants: arrayUnion(user.uid, ...helperIds)
         });
         
-        // 5b. Create in-app alerts for nearby helpers (stored in Firestore for real-time updates)
-        // These will trigger the nearbyAlerts listener in each helper's app
+        // 5b. Fetch FCM tokens for all helpers to enable background notifications
+        const helperTokensMap = new Map<string, string | null>();
+        
+        // Batch fetch user documents to get FCM tokens
+        for (const helper of nearbyUsers) {
+          try {
+            const helperDoc = await getDoc(doc(db, 'users', helper.id));
+            if (helperDoc.exists()) {
+              helperTokensMap.set(helper.id, helperDoc.data().fcmToken || null);
+            }
+          } catch (e) {
+            console.error('Failed to fetch helper token:', e);
+          }
+        }
+        
+        // 5c. Create in-app alerts for nearby helpers (stored in Firestore for real-time updates)
+        // These will trigger the nearbyAlerts listener in each helper's app AND enable FCM push
+        const notificationPayload = {
+          title: '🚨 Emergency Near You!',
+          body: `${userProfile.displayName || 'Someone'} needs urgent help! ${foundRadius}km away.`,
+        };
+        
         for (const helper of nearbyUsers) {
           try {
             await addDoc(collection(db, 'helperAlerts'), {
               helperId: helper.id,
+              fcmToken: helperTokensMap.get(helper.id) || null,
               emergencyId: emergencyRef.id,
               chatId: chatRef.id,
               victimName: userProfile.displayName || 'User',
@@ -691,12 +730,15 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
               lng,
               distance: helper.distance,
               status: 'pending',
+              notification: notificationPayload,
               createdAt: serverTimestamp(),
             });
           } catch (e) {
             console.error('Failed to create helper alert:', e);
           }
         }
+        
+        console.log(`Notified ${nearbyUsers.length} helpers within ${foundRadius}km radius`);
       }
       
       // 6. Update emergency status to 'active' once helpers are notified
@@ -769,6 +811,10 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       
       // Close the chat (set activeStatus to false)
       if (currentChat) {
+        // Fetch chat to get all participants for notification
+        const chatDoc = await getDoc(doc(db, 'chats', currentChat.id));
+        const participants = chatDoc.exists() ? chatDoc.data()?.participants || [] : [];
+        
         await updateDoc(doc(db, 'chats', currentChat.id), {
           activeStatus: false,
         });
@@ -782,6 +828,27 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           type: 'system',
           timestamp: serverTimestamp(),
         });
+        
+        // Send resolution notification to all participants (except the victim)
+        const helperIds = participants.filter((id: string) => id !== user.uid);
+        for (const helperId of helperIds) {
+          try {
+            await addDoc(collection(db, 'helperAlerts'), {
+              helperId,
+              chatId: currentChat.id,
+              emergencyId: currentEmergency.id,
+              type: 'resolution',
+              notification: {
+                title: '✅ Emergency Resolved',
+                body: `${userProfile?.displayName || 'User'} has received help. Thank you!`,
+              },
+              status: 'pending',
+              createdAt: serverTimestamp(),
+            });
+          } catch (e) {
+            console.error('Failed to send resolution notification:', e);
+          }
+        }
       }
       
       // Clear expiry timer
@@ -806,7 +873,7 @@ export const EmergencyProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         variant: "destructive",
       });
     }
-  }, [currentEmergency, currentChat, user]);
+  }, [currentEmergency, currentChat, user, userProfile]);
 
   const addContact = useCallback(async (contact: Omit<EmergencyContact, 'id'>) => {
     if (!user) return;
