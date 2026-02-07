@@ -12,6 +12,7 @@ import { BottomNav } from '@/components/BottomNav';
 import { LocationMap } from '@/components/LocationMap';
 import { LocationPermissionScreen } from '@/components/LocationPermissionScreen';
 import { NotificationPermission } from '@/components/NotificationPermission';
+import { LegalFooter } from '@/components/LegalFooter';
 import { useLanguage } from '@/lib/i18n';
 import { useEmergency } from '@/contexts/EmergencyContext';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
@@ -222,6 +223,9 @@ const Index = () => {
       >
         <QuickActions />
       </motion.div>
+
+      {/* Legal Footer */}
+      <LegalFooter />
 
       {/* Confirmation Popup */}
       <ConfirmationPopup />
