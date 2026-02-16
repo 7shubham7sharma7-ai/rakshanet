@@ -12,12 +12,16 @@ import { BottomNav } from '@/components/BottomNav';
 import { LocationMap } from '@/components/LocationMap';
 import { LocationPermissionScreen } from '@/components/LocationPermissionScreen';
 import { NotificationPermission } from '@/components/NotificationPermission';
+import { MicrophonePermissionPopup } from '@/components/MicrophonePermissionPopup';
 import { LegalFooter } from '@/components/LegalFooter';
 import { useLanguage } from '@/lib/i18n';
 import { useEmergency } from '@/contexts/EmergencyContext';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
+import { useAudioRecording } from '@/hooks/useAudioRecording';
+import { useEmergencyAudioRecording } from '@/hooks/useEmergencyAudioRecording';
 import { Button } from '@/components/ui/button';
+import { toast } from '@/hooks/use-toast';
 
 const Index = () => {
   const { t } = useLanguage();
@@ -43,6 +47,14 @@ const Index = () => {
   
   const [showPermissionScreen, setShowPermissionScreen] = useState(false);
   const [showNotificationPrompt, setShowNotificationPrompt] = useState(true);
+  const [showMicPopup, setShowMicPopup] = useState(false);
+  const [micPopupHandled, setMicPopupHandled] = useState(() => {
+    return localStorage.getItem('rakshanet_mic_popup_shown') === 'true';
+  });
+
+  // Initialize audio recording hook (auto-records on emergency)
+  const { micPermission, requestMicPermission, checkMicPermission: checkMic } = useAudioRecording();
+  useEmergencyAudioRecording();
 
   useEffect(() => {
     // Check permission on mount
@@ -75,6 +87,42 @@ const Index = () => {
       navigate('/chat');
     }
   }, [isEmergencyActive, currentChat, navigate]);
+
+  // Show mic popup after location permission is granted (first time only)
+  useEffect(() => {
+    if (locationPermissionGranted && !micPopupHandled) {
+      // Small delay to avoid overlapping with location permission flow
+      const timer = setTimeout(() => {
+        setShowMicPopup(true);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [locationPermissionGranted, micPopupHandled]);
+
+  const handleMicAllow = async () => {
+    const granted = await requestMicPermission();
+    setShowMicPopup(false);
+    setMicPopupHandled(true);
+    localStorage.setItem('rakshanet_mic_popup_shown', 'true');
+    if (!granted) {
+      toast({
+        title: "Microphone Denied",
+        description: "Audio evidence will not be available during emergencies. You can enable it in browser settings.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleMicDeny = () => {
+    setShowMicPopup(false);
+    setMicPopupHandled(true);
+    localStorage.setItem('rakshanet_mic_popup_shown', 'true');
+    toast({
+      title: "Microphone Skipped",
+      description: "Audio evidence will not be available without microphone permission.",
+      variant: "destructive",
+    });
+  };
 
   const handlePermissionGranted = async () => {
     setShowPermissionScreen(false);
@@ -226,6 +274,13 @@ const Index = () => {
 
       {/* Legal Footer */}
       <LegalFooter />
+
+      {/* Microphone Permission Popup */}
+      <MicrophonePermissionPopup
+        open={showMicPopup}
+        onAllow={handleMicAllow}
+        onDeny={handleMicDeny}
+      />
 
       {/* Confirmation Popup */}
       <ConfirmationPopup />
