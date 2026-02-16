@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -6,6 +7,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { LanguageProvider } from "@/lib/i18n";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { EmergencyProvider } from "@/contexts/EmergencyContext";
+import { LanguageSelectionScreen } from "@/components/LanguageSelectionScreen";
 import Index from "./pages/Index";
 import ChatPage from "./pages/ChatPage";
 import ContactsPage from "./pages/ContactsPage";
@@ -104,20 +106,30 @@ const AppRoutes = () => {
   );
 };
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <LanguageProvider>
-      <AuthProvider>
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-            <AppRoutes />
-          </BrowserRouter>
-        </TooltipProvider>
-      </AuthProvider>
-    </LanguageProvider>
-  </QueryClientProvider>
-);
+const App = () => {
+  const [languageChosen, setLanguageChosen] = useState(
+    () => localStorage.getItem('rakshanet_language_chosen') === 'true'
+  );
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <LanguageProvider>
+        {!languageChosen ? (
+          <LanguageSelectionScreen onComplete={() => setLanguageChosen(true)} />
+        ) : (
+          <AuthProvider>
+            <TooltipProvider>
+              <Toaster />
+              <Sonner />
+              <BrowserRouter>
+                <AppRoutes />
+              </BrowserRouter>
+            </TooltipProvider>
+          </AuthProvider>
+        )}
+      </LanguageProvider>
+    </QueryClientProvider>
+  );
+};
 
 export default App;
