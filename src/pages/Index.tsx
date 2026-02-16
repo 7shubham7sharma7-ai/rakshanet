@@ -19,7 +19,7 @@ import { useEmergency } from '@/contexts/EmergencyContext';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { useAudioRecording } from '@/hooks/useAudioRecording';
-import { useEmergencyAudioRecording } from '@/hooks/useEmergencyAudioRecording';
+
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 
@@ -54,7 +54,7 @@ const Index = () => {
 
   // Initialize audio recording hook (auto-records on emergency)
   const { micPermission, requestMicPermission, checkMicPermission: checkMic } = useAudioRecording();
-  useEmergencyAudioRecording();
+  
 
   useEffect(() => {
     // Check permission on mount

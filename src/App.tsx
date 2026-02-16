@@ -8,6 +8,7 @@ import { LanguageProvider } from "@/lib/i18n";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { EmergencyProvider } from "@/contexts/EmergencyContext";
 import { LanguageSelectionScreen } from "@/components/LanguageSelectionScreen";
+import { useEmergencyAudioRecording } from "@/hooks/useEmergencyAudioRecording";
 import Index from "./pages/Index";
 import ChatPage from "./pages/ChatPage";
 import ContactsPage from "./pages/ContactsPage";
@@ -38,7 +39,13 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
     return <Navigate to="/auth" replace />;
   }
   
-  return <EmergencyProvider>{children}</EmergencyProvider>;
+  return <EmergencyProvider><EmergencyAudioWrapper />{children}</EmergencyProvider>;
+};
+
+// Persistent component that runs audio recording hook across all protected routes
+const EmergencyAudioWrapper = () => {
+  useEmergencyAudioRecording();
+  return null;
 };
 
 // Auth Route - redirect to home if already logged in
