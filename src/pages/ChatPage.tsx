@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, MapPin, AlertTriangle, Users, X, Navigation, Clock, CheckCircle } from 'lucide-react';
+import { Send, MapPin, AlertTriangle, Users, X, Navigation, Clock, CheckCircle, Mic } from 'lucide-react';
+import { useAudioRecordingStatus } from '@/contexts/AudioRecordingContext';
 import { useEmergency, EmergencyAlert } from '@/contexts/EmergencyContext';
 import { BottomNav } from '@/components/BottomNav';
 import { Button } from '@/components/ui/button';
@@ -13,6 +14,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useChatStatus } from '@/hooks/useChatStatus';
 
 const ChatPage: React.FC = () => {
+  const { isRecording, countdown } = useAudioRecordingStatus();
   const { user } = useAuth();
   const { t } = useLanguage();
   const [searchParams] = useSearchParams();
@@ -214,6 +216,22 @@ const ChatPage: React.FC = () => {
                   <HelpersList helpers={helpersInfo} variant="compact" />
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Audio Recording Countdown */}
+          {isRecording && countdown > 0 && (
+            <div className="mx-4 mt-2 bg-destructive/10 border border-destructive/30 rounded-xl p-3 flex items-center gap-3">
+              <div className="relative">
+                <Mic className="w-5 h-5 text-destructive animate-pulse" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-medium text-destructive">🎙️ Recording Audio Evidence</p>
+                <p className="text-xs text-muted-foreground">Auto-sending in {countdown}s...</p>
+              </div>
+              <div className="w-10 h-10 rounded-full border-2 border-destructive flex items-center justify-center">
+                <span className="text-sm font-bold text-destructive">{countdown}</span>
+              </div>
             </div>
           )}
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { useAudioRecording } from './useAudioRecording';
 import { useEmergency } from '@/contexts/EmergencyContext';
 import { toast } from '@/hooks/use-toast';
@@ -16,6 +16,8 @@ export const useEmergencyAudioRecording = () => {
   const { startRecording, micPermission, checkMicPermission, isRecording } = useAudioRecording();
   const hasRecordedRef = useRef(false);
   const prevEmergencyRef = useRef(false);
+  const [countdown, setCountdown] = useState(0);
+  const countdownRef = useRef<NodeJS.Timeout | null>(null);
 
   // Check mic permission on mount
   useEffect(() => {
@@ -43,7 +45,23 @@ export const useEmergencyAudioRecording = () => {
         description: "Recording 20 seconds of audio for safety purposes...",
       });
 
+      // Start countdown
+      setCountdown(20);
+      countdownRef.current = setInterval(() => {
+        setCountdown(prev => {
+          if (prev <= 1) {
+            if (countdownRef.current) clearInterval(countdownRef.current);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+
       const result = await startRecording(20000);
+      
+      // Clear countdown
+      if (countdownRef.current) clearInterval(countdownRef.current);
+      setCountdown(0);
 
       if (result && user && userProfile) {
         // Convert blob to base64 for storage in Firestore message
@@ -84,18 +102,23 @@ export const useEmergencyAudioRecording = () => {
 
   // Trigger recording when emergency becomes active and chat is available
   useEffect(() => {
-    const justActivated = isEmergencyActive && !prevEmergencyRef.current;
-    prevEmergencyRef.current = isEmergencyActive;
+    // Track if emergency just activated
+    if (isEmergencyActive && !prevEmergencyRef.current) {
+      // Emergency just activated, mark it but don't reset hasRecordedRef
+      prevEmergencyRef.current = true;
+    }
 
-    if (justActivated && currentChat?.id) {
+    // Record when emergency is active, chat is available, and we haven't recorded yet
+    if (isEmergencyActive && currentChat?.id && !hasRecordedRef.current) {
       recordAndSend(currentChat.id);
     }
 
     // Reset when emergency ends
     if (!isEmergencyActive) {
+      prevEmergencyRef.current = false;
       hasRecordedRef.current = false;
     }
   }, [isEmergencyActive, currentChat, recordAndSend]);
 
-  return { isRecording };
+  return { isRecording, countdown };
 };
